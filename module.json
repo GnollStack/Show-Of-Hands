@@ -1,0 +1,21 @@
+{
+  "id": "target-the-beastie",
+  "title": "Target The Beastie!",
+  "version": "14.0.0",
+  "compatibility": {
+    "minimum": "11",
+    "verified": "13"
+  },
+  "description": "Target tokens with the mousewheel button. Upload custom cursor images and configure different cursors for each interaction state (default, hover, targeting, panning).",
+  "authors": [
+    {
+      "name": "GnollStack",
+      "discord": "GnollStack",
+      "flags": {}
+    }
+  ],
+  "socket": true,
+  "esmodules": [
+    "scripts/main.js"
+  ]
+}
