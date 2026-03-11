@@ -153,7 +153,7 @@ export async function applyCursorStyles(isEnabled) {
     }
 
     if (!isEnabled) {
-        console.log(`${MODULE_ID} | Custom cursor disabled.`);
+        debugLog("cursor", "Custom cursor disabled.");
         return;
     }
 
@@ -191,5 +191,5 @@ export async function applyCursorStyles(isEnabled) {
     style.id = STYLE_ID;
     style.textContent = finalCSS;
     document.head.appendChild(style);
-    console.log(`${MODULE_ID} | Custom cursor applied.`);
+    debugLog("cursor", "Custom cursor applied.");
 }

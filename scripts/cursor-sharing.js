@@ -2,23 +2,24 @@ import { MODULE_ID, SOCKET_EVENT, CURSOR_SHARE_THROTTLE_MS, debugLog } from './c
 import { updateRemoteCursor, updateRemoteCursorImage, removeRemoteCursor } from './cursor-overlay.js';
 import { loadImage, getRotatedCursor } from './cursor-styles.js';
 
+// foundry deafult C:\Program Files\Foundry Virtual Tabletop\resources\app\client\canvas\containers\elements\cursor.mjs
+
 let _active = false;
 let _registered = false;
 let _lastBroadcast = 0;
-let _moveLogCount = 0;
 let _userConnectedHookId = null;
 let _cachedCursorDataUrl = null;
 let _cachedHotspotX = 0;
 let _cachedHotspotY = 0;
 
 export function startCursorSharing() {
-    console.log(`${MODULE_ID} | [DIAG] startCursorSharing called, _active=${_active}, _registered=${_registered}`);
+    debugLog("sharing", `startCursorSharing called, _active=${_active}, _registered=${_registered}`);
     if (_active) return;
     _active = true;
 
     // Listen for our module's socket messages (cursor images + position)
     game.socket.on(SOCKET_EVENT, _onSocketMessage);
-    console.log(`${MODULE_ID} | [DIAG] Registered socket listener on "${SOCKET_EVENT}"`);
+    debugLog("sharing", `Registered socket listener on "${SOCKET_EVENT}"`);
 
     // Register a mouse move handler using Foundry's canvas system.
     // This receives canvas coordinates directly from PIXI pointer events.
@@ -27,7 +28,7 @@ export function startCursorSharing() {
     if (!_registered) {
         canvas.registerMouseMoveHandler(_onCanvasMouseMove, 0);
         _registered = true;
-        console.log(`${MODULE_ID} | [DIAG] Registered canvas mouse move handler`);
+        debugLog("sharing", "Registered canvas mouse move handler");
     }
 
     _userConnectedHookId = Hooks.on("userConnected", _onUserConnected);
@@ -35,7 +36,7 @@ export function startCursorSharing() {
     // Build and broadcast our custom cursor image
     _broadcastCursorImage();
 
-    console.log(`${MODULE_ID} | [DIAG] Cursor sharing started successfully`);
+    debugLog("sharing", "Cursor sharing started successfully");
 }
 
 export function stopCursorSharing() {
@@ -73,11 +74,7 @@ function _onCanvasMouseMove(currentPos) {
     if (now - _lastBroadcast < CURSOR_SHARE_THROTTLE_MS) return;
     _lastBroadcast = now;
 
-    // Log first 5 emissions to confirm handler fires and coords are sane
-    if (_moveLogCount < 5) {
-        _moveLogCount++;
-        console.log(`${MODULE_ID} | [DIAG] Mouse move #${_moveLogCount}: emitting cursorMove at (${currentPos.x.toFixed(1)}, ${currentPos.y.toFixed(1)}), scene=${canvas.scene?.id}`);
-    }
+    debugLog("sharing", `Mouse move: emitting cursorMove at (${currentPos.x.toFixed(1)}, ${currentPos.y.toFixed(1)}), scene=${canvas.scene?.id}`);
 
     game.socket.emit(SOCKET_EVENT, {
         type: "cursorMove",
@@ -138,28 +135,33 @@ async function _broadcastCursorImage() {
 }
 
 function _emitCursorImage(dataUrl, hotspotX, hotspotY) {
+    // Include name position settings so other clients position the label correctly
+    let namePosition = "bottom-center";
+    let nameOffset = { x: 0, y: 1.2 };
+    try {
+        namePosition = game.settings.get(MODULE_ID, "cursor-name-position");
+        nameOffset = game.settings.get(MODULE_ID, "cursor-name-offset");
+    } catch { /* use defaults */ }
+
     game.socket.emit(SOCKET_EVENT, {
         type: "cursorImage",
         userId: game.user.id,
         imageDataUrl: dataUrl,
         hotspotX,
-        hotspotY
+        hotspotY,
+        namePosition,
+        nameOffset
     });
     debugLog("sharing", "Broadcast cursor image", dataUrl ? `(${dataUrl.length} bytes)` : "(cleared)");
 }
 
-let _recvLogCount = 0;
 function _onSocketMessage(data) {
-    // Log first 5 received messages per type
-    if (_recvLogCount < 5) {
-        _recvLogCount++;
-        console.log(`${MODULE_ID} | [DIAG] Socket received #${_recvLogCount}: type=${data.type}, userId=${data.userId}, myId=${game.user.id}, sceneId=${data.sceneId}, myScene=${canvas.scene?.id}`);
-    }
+    debugLog("sharing", `Socket received: type=${data.type}, userId=${data.userId}, sceneId=${data.sceneId}`);
     if (data.type === "cursorMove") {
         if (data.sceneId !== canvas.scene?.id) return;
         updateRemoteCursor(data.userId, data.x, data.y);
     } else if (data.type === "cursorImage") {
-        updateRemoteCursorImage(data.userId, data.imageDataUrl, data.hotspotX, data.hotspotY);
+        updateRemoteCursorImage(data.userId, data.imageDataUrl, data.hotspotX, data.hotspotY, data.namePosition, data.nameOffset);
     } else if (data.type === "requestCursorImage") {
         // Another user is asking us for our cursor image
         if (_cachedCursorDataUrl) {

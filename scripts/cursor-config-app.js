@@ -1,4 +1,4 @@
-import { MODULE_ID, DEFAULT_CURSOR_PATH, DEFAULT_HOTSPOT, CURSOR_STATE_KEYS, CURSOR_STATE_LABELS, debugLog } from './constants.js';
+import { MODULE_ID, DEFAULT_CURSOR_PATH, DEFAULT_HOTSPOT, CURSOR_STATE_KEYS, CURSOR_STATE_LABELS, NAME_POSITION_PRESETS, debugLog } from './constants.js';
 import { getDefaultCursorStates } from './settings.js';
 import { applyCursorStyles } from './cursor-styles.js';
 import { refreshSharedCursorImage } from './cursor-sharing.js';
@@ -39,9 +39,16 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
             isDefault: key === "default",
             ...states[key]
         }));
+        const namePosition = game.settings.get(MODULE_ID, "cursor-name-position");
+        const nameOffset = game.settings.get(MODULE_ID, "cursor-name-offset");
         return {
             states: statesArray,
-            defaultCursorPath: DEFAULT_CURSOR_PATH
+            defaultCursorPath: DEFAULT_CURSOR_PATH,
+            cursorImage: states.default?.image || DEFAULT_CURSOR_PATH,
+            playerName: game.user.name,
+            namePosition,
+            nameOffsetX: nameOffset?.x ?? 0,
+            nameOffsetY: nameOffset?.y ?? 1.2
         };
     }
 
@@ -65,14 +72,14 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
             if (!section) return;
 
             const imageInput = section.querySelector(`input[name="states.${stateKey}.image"]`);
-            const previewImg = section.querySelector('.cursor-preview-img');
-            const hotspotDot = section.querySelector('.hotspot-dot');
+            const previewImg = section.querySelector('.ttb-preview-img');
+            const hotspotDot = section.querySelector('.ttb-hotspot-dot');
             const xSlider = section.querySelector(`input[name="states.${stateKey}.hotspotX"]`);
             const ySlider = section.querySelector(`input[name="states.${stateKey}.hotspotY"]`);
             const rotSlider = section.querySelector(`input[name="states.${stateKey}.rotation"]`);
-            const xValue = section.querySelector('.hotspot-x-value');
-            const yValue = section.querySelector('.hotspot-y-value');
-            const rotValue = section.querySelector('.rotation-value');
+            const xValue = section.querySelector('.ttb-hotspot-x-value');
+            const yValue = section.querySelector('.ttb-hotspot-y-value');
+            const rotValue = section.querySelector('.ttb-rotation-value');
             const browseBtn = section.querySelector('.ttb-browse-btn');
             const aomBtn = section.querySelector('.ttb-aom-btn');
             const enableCheckbox = section.querySelector(`input[name="states.${stateKey}.enabled"]`);
@@ -179,6 +186,9 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
                             ui.notifications.warn(`Cursor image is ${img.width}x${img.height}px. Browser cursors should be 128x128 or smaller for best results.`);
                         }
                     };
+                    img.onerror = () => {
+                        debugLog("config", `Failed to load cursor image for validation: ${path}`);
+                    };
                     img.src = path;
                 }
             };
@@ -248,7 +258,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
                     const wS = section.querySelector(`input[name="states.${key}.width"]`);
                     const hS = section.querySelector(`input[name="states.${key}.height"]`);
                     const en = section.querySelector(`input[name="states.${key}.enabled"]`);
-                    const preview = section.querySelector('.cursor-preview-img');
+                    const preview = section.querySelector('.ttb-preview-img');
 
                     if (img) img.value = state.image;
                     if (xS) xS.value = state.hotspotX;
@@ -273,6 +283,133 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
                 ui.notifications.info("Reset to defaults.");
             });
         }
+
+        // --- Name Label Position (inside Default tab's preview) ---
+        const defaultSection = html.querySelector('.ttb-tab-content[data-tab="default"]');
+        const dragLabel = defaultSection?.querySelector('.ttb-name-drag-label');
+        if (defaultSection && dragLabel) {
+            const previewWrapper = defaultSection.querySelector('.ttb-preview-wrapper');
+            const previewContainer = defaultSection.querySelector('.ttb-preview-container');
+            const presetBtns = previewContainer.querySelectorAll('.ttb-name-preset');
+            const hiddenX = previewContainer.querySelector('input[name="nameOffsetX"]');
+            const hiddenY = previewContainer.querySelector('input[name="nameOffsetY"]');
+            const hiddenPos = previewContainer.querySelector('input[name="namePosition"]');
+            const previewImg = defaultSection.querySelector('.ttb-preview-img');
+
+            // Position the label relative to the cursor image center in the preview
+            const positionLabel = (offsetX, offsetY) => {
+                if (!previewWrapper || !dragLabel) return;
+                const imgW = previewImg?.offsetWidth || 64;
+                const imgH = previewImg?.offsetHeight || 64;
+                // Image is positioned at the start of the wrapper
+                const imgCenterX = imgW / 2;
+                const imgCenterY = imgH / 2;
+                const scale = 16;
+                const px = imgCenterX + (offsetX * scale) - (dragLabel.offsetWidth / 2);
+                const py = imgCenterY + (offsetY * scale);
+                dragLabel.style.left = `${px}px`;
+                dragLabel.style.top = `${py}px`;
+            };
+
+            const setActivePreset = (presetName) => {
+                presetBtns.forEach(b => b.classList.toggle('active', b.dataset.preset === presetName));
+            };
+
+            const applyPreset = (presetName) => {
+                const preset = NAME_POSITION_PRESETS[presetName];
+                if (!preset) return;
+                hiddenPos.value = presetName;
+                hiddenX.value = preset.offsetX;
+                hiddenY.value = preset.offsetY;
+                setActivePreset(presetName);
+                positionLabel(preset.offsetX, preset.offsetY);
+            };
+
+            // Init from current values
+            setActivePreset(hiddenPos.value);
+            requestAnimationFrame(() => {
+                positionLabel(parseFloat(hiddenX.value), parseFloat(hiddenY.value));
+            });
+
+            // Preset buttons
+            presetBtns.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    applyPreset(btn.dataset.preset);
+                });
+            });
+
+            // Drag logic
+            let dragging = false;
+            let dragStartX = 0, dragStartY = 0, labelStartX = 0, labelStartY = 0;
+
+            dragLabel.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                dragging = true;
+                dragStartX = e.clientX;
+                dragStartY = e.clientY;
+                labelStartX = dragLabel.offsetLeft;
+                labelStartY = dragLabel.offsetTop;
+            });
+
+            // Clean up previous document listeners if _onRender is called again
+            this._cleanupDragListeners();
+
+            this._boundDocMouseMove = (e) => {
+                if (!dragging) return;
+                const dx = e.clientX - dragStartX;
+                const dy = e.clientY - dragStartY;
+                const newX = labelStartX + dx;
+                const newY = labelStartY + dy;
+                dragLabel.style.left = `${newX}px`;
+                dragLabel.style.top = `${newY}px`;
+
+                // Convert back to offset multipliers relative to image center
+                const imgW = previewImg?.offsetWidth || 64;
+                const imgH = previewImg?.offsetHeight || 64;
+                const scale = 16;
+                const offsetX = ((newX + dragLabel.offsetWidth / 2) - imgW / 2) / scale;
+                const offsetY = (newY - imgH / 2) / scale;
+                hiddenX.value = Math.round(offsetX * 100) / 100;
+                hiddenY.value = Math.round(offsetY * 100) / 100;
+                hiddenPos.value = "custom";
+                setActivePreset("custom");
+            };
+
+            this._boundDocMouseUp = () => {
+                dragging = false;
+            };
+
+            document.addEventListener('mousemove', this._boundDocMouseMove);
+            document.addEventListener('mouseup', this._boundDocMouseUp);
+
+            // Re-position label when image size/rotation changes
+            const reposOnChange = () => {
+                requestAnimationFrame(() => {
+                    positionLabel(parseFloat(hiddenX.value), parseFloat(hiddenY.value));
+                });
+            };
+            const wInput = defaultSection.querySelector('input[name="states.default.width"]');
+            const hInput = defaultSection.querySelector('input[name="states.default.height"]');
+            if (wInput) wInput.addEventListener('input', reposOnChange);
+            if (hInput) hInput.addEventListener('input', reposOnChange);
+        }
+    }
+
+    _cleanupDragListeners() {
+        if (this._boundDocMouseMove) {
+            document.removeEventListener('mousemove', this._boundDocMouseMove);
+            this._boundDocMouseMove = null;
+        }
+        if (this._boundDocMouseUp) {
+            document.removeEventListener('mouseup', this._boundDocMouseUp);
+            this._boundDocMouseUp = null;
+        }
+    }
+
+    _onClose(options) {
+        this._cleanupDragListeners();
+        super._onClose(options);
     }
 
     static async #onSubmit(event, form, formData) {
@@ -306,6 +443,13 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
         if (isEnabled) {
             await applyCursorStyles(true);
         }
+
+        // Save name label position
+        const namePos = data.namePosition || "bottom-center";
+        const nameOffsetX = parseFloat(data.nameOffsetX) || 0;
+        const nameOffsetY = parseFloat(data.nameOffsetY) || 1.2;
+        await game.settings.set(MODULE_ID, "cursor-name-position", namePos);
+        await game.settings.set(MODULE_ID, "cursor-name-offset", { x: nameOffsetX, y: nameOffsetY });
 
         refreshSharedCursorImage();
         ui.notifications.info("Cursor configuration saved!");

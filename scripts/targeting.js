@@ -1,24 +1,16 @@
-import { MODULE_ID, debugLog } from './constants.js';
+import { debugLog } from './constants.js';
 
-function handlePointerDown(event) {
-    if (event.originalEvent.button !== 1) return;
+/**
+ * Perform single-token targeting on the currently hovered token.
+ * Called by marquee-select.js when a middle-click (no drag) is detected.
+ * @param {boolean} isShift - Whether shift key is held for multi-targeting
+ */
+export function performSingleTarget(isShift) {
     if (!canvas.tokens.hover) return;
 
     const targetAction = game.keybindings.actions.get("core.target");
     if (targetAction?.onDown) {
-        targetAction.onDown({ isShift: event.originalEvent.shiftKey });
-    }
-}
-
-export function toggleListener(isEnabled) {
-    const stage = canvas?.app?.stage;
-    if (!stage) return;
-
-    stage.off('pointerdown', handlePointerDown);
-    if (isEnabled) {
-        console.log(`${MODULE_ID} | Mousewheel targeting enabled.`);
-        stage.on('pointerdown', handlePointerDown);
-    } else {
-        console.log(`${MODULE_ID} | Mousewheel targeting disabled.`);
+        debugLog("marquee", "Single target on hovered token, shift:", isShift);
+        targetAction.onDown({ isShift });
     }
 }

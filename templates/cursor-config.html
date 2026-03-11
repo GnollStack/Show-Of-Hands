@@ -12,17 +12,17 @@
     <div class="ttb-tab-content {{#if @first}}active{{/if}}" data-tab="{{key}}">
 
         {{#unless isDefault}}
-        <div class="form-group">
+        <div class="ttb-form-group">
             <label class="ttb-toggle-label">
                 <input type="checkbox" name="states.{{key}}.enabled" {{checked enabled}}>
                 Enable separate cursor for {{label}}
             </label>
-            <p class="notes">When disabled, the Default cursor is used for this state.</p>
+            <p class="ttb-notes">When disabled, the Default cursor is used for this state.</p>
         </div>
         {{/unless}}
 
         <div class="ttb-state-fields">
-            <div class="form-group">
+            <div class="ttb-form-group">
                 <label>Cursor Image</label>
                 <div class="ttb-image-row">
                     <input type="text" name="states.{{key}}.image" value="{{image}}" placeholder="Path to cursor image...">
@@ -35,42 +35,57 @@
                 </div>
             </div>
 
-            <div class="cursor-preview-container">
+            <div class="ttb-preview-container">
                 <div class="ttb-preview-wrapper">
-                    <img src="{{image}}" alt="Cursor Preview" class="cursor-preview-img"
+                    <img src="{{image}}" alt="Cursor Preview" class="ttb-preview-img"
                          style="{{#unless image}}display:none;{{/unless}}">
-                    <div class="hotspot-dot"></div>
+                    <div class="ttb-hotspot-dot"></div>
+                    {{#if isDefault}}
+                    <div class="ttb-name-drag-label">{{../playerName}}</div>
+                    {{/if}}
                 </div>
                 <p class="ttb-preview-label">
                     <i class="fas fa-circle ttb-dot-icon"></i> Red dot = Click point
                 </p>
+                {{#if isDefault}}
+                <div class="ttb-name-preset-row">
+                    <span class="ttb-preset-label">Name:</span>
+                    <button type="button" class="ttb-name-preset" data-preset="bottom-center">Bottom Center</button>
+                    <button type="button" class="ttb-name-preset" data-preset="bottom-right">Bottom Right</button>
+                    <button type="button" class="ttb-name-preset" data-preset="top-center">Top Center</button>
+                    <button type="button" class="ttb-name-preset" data-preset="right">Right</button>
+                </div>
+                <input type="hidden" name="nameOffsetX" value="{{../nameOffsetX}}">
+                <input type="hidden" name="nameOffsetY" value="{{../nameOffsetY}}">
+                <input type="hidden" name="namePosition" value="{{../namePosition}}">
+                {{/if}}
             </div>
 
-            <div class="form-group">
+            <div class="ttb-form-group">
                 <label>
-                    Hotspot X: <span class="hotspot-x-value">{{hotspotX}}</span>px
+                    Hotspot X: <span class="ttb-hotspot-x-value">{{hotspotX}}</span>px
                 </label>
                 <input type="range" name="states.{{key}}.hotspotX" min="0" max="128" step="1" value="{{hotspotX}}">
-                <p class="notes">Horizontal position of the click point (left to right)</p>
+                <p class="ttb-notes">Horizontal position of the click point (left to right)</p>
             </div>
 
-            <div class="form-group">
+            <div class="ttb-form-group">
                 <label>
-                    Hotspot Y: <span class="hotspot-y-value">{{hotspotY}}</span>px
+                    Hotspot Y: <span class="ttb-hotspot-y-value">{{hotspotY}}</span>px
                 </label>
                 <input type="range" name="states.{{key}}.hotspotY" min="0" max="128" step="1" value="{{hotspotY}}">
-                <p class="notes">Vertical position of the click point (top to bottom)</p>
+                <p class="ttb-notes">Vertical position of the click point (top to bottom)</p>
             </div>
 
-            <div class="form-group">
+            <div class="ttb-form-group">
                 <label>
-                    Rotation: <span class="rotation-value">{{rotation}}</span>&deg;
+                    Rotation: <span class="ttb-rotation-value">{{rotation}}</span>&deg;
                 </label>
                 <input type="range" name="states.{{key}}.rotation" min="0" max="359" step="1" value="{{rotation}}">
-                <p class="notes">Rotate the cursor image (0-359 degrees). The click point rotates with it.</p>
+                <p class="ttb-notes">Rotate the cursor image (0-359 degrees). The click point rotates with it.</p>
             </div>
 
-            <div class="form-group">
+            <div class="ttb-form-group">
                 <label>Size</label>
                 <div class="ttb-size-row">
                     <span>W:</span>
@@ -83,11 +98,11 @@
                     <input type="number" name="states.{{key}}.height" class="ttb-size-h" min="1" max="128" value="{{#if height}}{{height}}{{/if}}" placeholder="auto">
                     <span>px</span>
                 </div>
-                <p class="notes">Resize the cursor (1–128px). Leave empty to use the original image size. The hotspot scales automatically.</p>
+                <p class="ttb-notes">Resize the cursor (1-128px). Leave empty to use the original image size. The hotspot scales automatically.</p>
             </div>
 
-            <div class="form-group">
-                <p class="notes ttb-tip">
+            <div class="ttb-form-group">
+                <p class="ttb-notes ttb-tip">
                     Tip: For arrow cursors, the click point is usually at the tip of the arrow (around X: 4, Y: 4).
                     Cursor images should be 128x128 pixels or smaller.
                 </p>
@@ -96,7 +111,7 @@
     </div>
     {{/each}}
 
-    <footer class="sheet-footer flexrow">
+    <footer class="ttb-sheet-footer flexrow">
         <button type="submit" name="submit">
             <i class="fas fa-check"></i> Save
         </button>
@@ -105,192 +120,4 @@
         </button>
     </footer>
 
-<style>
-.ttb-cursor-config {
-    padding: 10px;
-}
-
-.ttb-tabs {
-    display: flex;
-    gap: 2px;
-    margin-bottom: 16px;
-    border-bottom: 2px solid #999;
-    padding-bottom: 0;
-}
-
-.ttb-tab-btn {
-    padding: 6px 14px;
-    border: 1px solid #999;
-    border-bottom: none;
-    border-radius: 4px 4px 0 0;
-    background: #e0e0e0;
-    cursor: pointer;
-    font-size: 12px;
-    font-weight: bold;
-    color: #555;
-    transition: background 0.15s, color 0.15s;
-}
-
-.ttb-tab-btn:hover {
-    background: #d0d0d0;
-}
-
-.ttb-tab-btn.active {
-    background: #fff;
-    color: #111;
-    border-bottom: 1px solid #fff;
-    margin-bottom: -2px;
-}
-
-.ttb-tab-content {
-    display: none;
-}
-
-.ttb-tab-content.active {
-    display: block;
-}
-
-.ttb-toggle-label {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-weight: bold;
-    cursor: pointer;
-}
-
-.ttb-image-row {
-    display: flex;
-    gap: 4px;
-    align-items: center;
-}
-
-.ttb-image-row input[type="text"] {
-    flex: 1;
-}
-
-.ttb-browse-btn,
-.ttb-aom-btn {
-    flex-shrink: 0;
-    width: 32px;
-    height: 28px;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-}
-
-.cursor-preview-container {
-    position: relative;
-    margin: 16px auto;
-    width: fit-content;
-    background: #f0f0f0;
-    padding: 20px;
-    border-radius: 8px;
-    border: 2px solid #ccc;
-    user-select: none;
-}
-
-.ttb-preview-wrapper {
-    position: relative;
-    display: inline-block;
-}
-
-.cursor-preview-img {
-    display: block;
-    image-rendering: pixelated;
-    image-rendering: crisp-edges;
-    max-width: 128px;
-    max-height: 128px;
-}
-
-.hotspot-dot {
-    position: absolute;
-    width: 6px;
-    height: 6px;
-    background: red;
-    border-radius: 50%;
-    border: 1px solid white;
-    box-shadow: 0 0 3px rgba(0,0,0,0.5);
-    pointer-events: none;
-    left: 0;
-    top: 0;
-}
-
-.ttb-preview-label {
-    text-align: center;
-    margin-top: 10px;
-    font-size: 12px;
-    color: #666;
-}
-
-.ttb-dot-icon {
-    color: red;
-    font-size: 8px;
-}
-
-.ttb-cursor-config .form-group {
-    margin-bottom: 12px;
-}
-
-.ttb-cursor-config label {
-    display: block;
-    font-weight: bold;
-    margin-bottom: 4px;
-}
-
-.ttb-cursor-config input[type="range"] {
-    width: 100%;
-    cursor: pointer;
-}
-
-.ttb-cursor-config .notes {
-    font-size: 11px;
-    color: #666;
-    margin: 4px 0;
-    line-height: 1.4;
-}
-
-.ttb-tip {
-    font-style: italic;
-    color: #555 !important;
-}
-
-.ttb-state-fields {
-    margin-top: 8px;
-}
-
-.ttb-size-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.ttb-size-row input[type="number"] {
-    width: 58px;
-    text-align: center;
-}
-
-.ttb-size-row span {
-    font-size: 12px;
-    color: #555;
-}
-
-.ttb-ratio-btn {
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    flex-shrink: 0;
-}
-
-.ttb-ratio-btn.locked {
-    color: #4a90d9;
-    border-color: #4a90d9;
-    background: #e8f0fb;
-}
-</style>
 </div>

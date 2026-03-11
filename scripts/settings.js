@@ -17,16 +17,16 @@ export async function migrateSettings() {
         // Setting doesn't exist yet, proceed with migration
     }
 
-    console.log(`${MODULE_ID} | Migrating settings to v2...`);
+    debugLog("cursor", "Migrating settings to v2...");
 
     try {
         let oldEnabled = true;
         let oldHotspotX = DEFAULT_HOTSPOT.x;
         let oldHotspotY = DEFAULT_HOTSPOT.y;
 
-        try { oldEnabled = game.settings.get(MODULE_ID, "use-aom-cursor"); } catch {}
-        try { oldHotspotX = game.settings.get(MODULE_ID, "cursor-hotspot-x"); } catch {}
-        try { oldHotspotY = game.settings.get(MODULE_ID, "cursor-hotspot-y"); } catch {}
+        try { oldEnabled = game.settings.get(MODULE_ID, "use-aom-cursor"); } catch { /* legacy setting may not exist */ }
+        try { oldHotspotX = game.settings.get(MODULE_ID, "cursor-hotspot-x"); } catch { /* legacy setting may not exist */ }
+        try { oldHotspotY = game.settings.get(MODULE_ID, "cursor-hotspot-y"); } catch { /* legacy setting may not exist */ }
 
         const states = getDefaultCursorStates();
         states.default.hotspotX = oldHotspotX;
@@ -36,7 +36,7 @@ export async function migrateSettings() {
         await game.settings.set(MODULE_ID, "cursor-states", states);
         await game.settings.set(MODULE_ID, "settings-version", 2);
 
-        console.log(`${MODULE_ID} | Migration complete.`);
+        debugLog("cursor", "Migration complete.");
     } catch (e) {
         console.warn(`${MODULE_ID} | Migration failed, using defaults.`, e);
     }

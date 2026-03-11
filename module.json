@@ -1,12 +1,12 @@
 {
   "id": "target-the-beastie",
   "title": "Target The Beastie!",
-  "version": "14.0.0",
+  "version": "13.1.0",
   "compatibility": {
-    "minimum": "11",
-    "verified": "13"
+    "minimum": "13",
+    "verified": "13.315"
   },
-  "description": "Target tokens with the mousewheel button. Upload custom cursor images and configure different cursors for each interaction state (default, hover, targeting, panning).",
+  "description": "Target tokens with the mousewheel button. Hold and drag to marquee-select multiple tokens at once. Upload custom cursor images and configure different cursors for each interaction state (default, hover, targeting, panning).",
   "authors": [
     {
       "name": "GnollStack",
@@ -15,6 +15,9 @@
     }
   ],
   "socket": true,
+  "styles": [
+    "styles/cursor-config.css"
+  ],
   "esmodules": [
     "scripts/main.js"
   ]
