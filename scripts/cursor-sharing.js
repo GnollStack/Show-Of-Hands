@@ -11,6 +11,8 @@ let _userConnectedHookId = null;
 let _cachedCursorDataUrl = null;
 let _cachedHotspotX = 0;
 let _cachedHotspotY = 0;
+let _broadcastInFlight = false;
+let _broadcastQueued = false;
 
 export function startCursorSharing() {
     debugLog("sharing", `startCursorSharing called, _active=${_active}, _registered=${_registered}`);
@@ -51,6 +53,8 @@ export function stopCursorSharing() {
     }
 
     _cachedCursorDataUrl = null;
+    _cachedHotspotX = 0;
+    _cachedHotspotY = 0;
 
     debugLog("sharing", "Cursor sharing stopped");
 }
@@ -86,10 +90,19 @@ function _onCanvasMouseMove(currentPos) {
 }
 
 async function _broadcastCursorImage() {
+    // Guard against concurrent async calls — queue a re-run instead of interleaving
+    if (_broadcastInFlight) {
+        _broadcastQueued = true;
+        return;
+    }
+    _broadcastInFlight = true;
+
     try {
         const isCursorEnabled = game.settings.get(MODULE_ID, "use-custom-cursor");
         if (!isCursorEnabled) {
             _cachedCursorDataUrl = null;
+            _cachedHotspotX = 0;
+            _cachedHotspotY = 0;
             _emitCursorImage(null, 0, 0);
             return;
         }
@@ -98,6 +111,8 @@ async function _broadcastCursorImage() {
         const def = states?.default;
         if (!def?.image) {
             _cachedCursorDataUrl = null;
+            _cachedHotspotX = 0;
+            _cachedHotspotY = 0;
             _emitCursorImage(null, 0, 0);
             return;
         }
@@ -131,6 +146,15 @@ async function _broadcastCursorImage() {
     } catch (e) {
         console.warn(`${MODULE_ID} | Failed to build shared cursor image:`, e);
         _cachedCursorDataUrl = null;
+        _cachedHotspotX = 0;
+        _cachedHotspotY = 0;
+        _emitCursorImage(null, 0, 0);
+    } finally {
+        _broadcastInFlight = false;
+        if (_broadcastQueued) {
+            _broadcastQueued = false;
+            _broadcastCursorImage();
+        }
     }
 }
 
@@ -146,6 +170,7 @@ function _emitCursorImage(dataUrl, hotspotX, hotspotY) {
     game.socket.emit(SOCKET_EVENT, {
         type: "cursorImage",
         userId: game.user.id,
+        playerName: game.user.name,
         imageDataUrl: dataUrl,
         hotspotX,
         hotspotY,
@@ -161,12 +186,18 @@ function _onSocketMessage(data) {
         if (data.sceneId !== canvas.scene?.id) return;
         updateRemoteCursor(data.userId, data.x, data.y);
     } else if (data.type === "cursorImage") {
-        updateRemoteCursorImage(data.userId, data.imageDataUrl, data.hotspotX, data.hotspotY, data.namePosition, data.nameOffset);
+        updateRemoteCursorImage(
+            data.userId,
+            data.imageDataUrl,
+            data.hotspotX,
+            data.hotspotY,
+            data.playerName,
+            data.namePosition,
+            data.nameOffset
+        );
     } else if (data.type === "requestCursorImage") {
         // Another user is asking us for our cursor image
-        if (_cachedCursorDataUrl) {
-            _emitCursorImage(_cachedCursorDataUrl, _cachedHotspotX, _cachedHotspotY);
-        }
+        _emitCursorImage(_cachedCursorDataUrl, _cachedHotspotX, _cachedHotspotY);
     }
 }
 
@@ -176,9 +207,7 @@ function _onUserConnected(user, connected) {
         debugLog("sharing", `User disconnected: ${user.name}`);
     } else {
         // New user joined — send them our cursor image
-        if (_cachedCursorDataUrl) {
-            _emitCursorImage(_cachedCursorDataUrl, _cachedHotspotX, _cachedHotspotY);
-        }
+        _emitCursorImage(_cachedCursorDataUrl, _cachedHotspotX, _cachedHotspotY);
         // Request their cursor image
         game.socket.emit(SOCKET_EVENT, {
             type: "requestCursorImage",

@@ -49,12 +49,15 @@
                 </p>
                 {{#if isDefault}}
                 <div class="ttb-name-preset-row">
-                    <span class="ttb-preset-label">Name:</span>
+                    <span class="ttb-preset-label">Overlay Name:</span>
                     <button type="button" class="ttb-name-preset" data-preset="bottom-center">Bottom Center</button>
                     <button type="button" class="ttb-name-preset" data-preset="bottom-right">Bottom Right</button>
                     <button type="button" class="ttb-name-preset" data-preset="top-center">Top Center</button>
                     <button type="button" class="ttb-name-preset" data-preset="right">Right</button>
                 </div>
+                <p class="ttb-notes ttb-tip">
+                    Drag this label to position the module's shared overlay name. Foundry's built-in cursor name is controlled separately in the module settings.
+                </p>
                 <input type="hidden" name="nameOffsetX" value="{{../nameOffsetX}}">
                 <input type="hidden" name="nameOffsetY" value="{{../nameOffsetY}}">
                 <input type="hidden" name="namePosition" value="{{../namePosition}}">

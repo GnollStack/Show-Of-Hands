@@ -49,12 +49,18 @@ export function setupCursorStateListeners() {
     Hooks.on("renderSceneControls", _onRenderSceneControls);
 
     // UI hover: detect interactive elements (buttons, links, etc.) outside the canvas
+    // Use tag/role checks first to avoid expensive getComputedStyle on every mouseover
+    const POINTER_TAGS = new Set(['A', 'BUTTON', 'SELECT', 'SUMMARY']);
     _uiHoverHandler = (e) => {
-        const isPointer = window.getComputedStyle(e.target).cursor === 'pointer';
+        const el = e.target;
+        const isPointer = POINTER_TAGS.has(el.tagName)
+            || el.role === 'button'
+            || el.style?.cursor === 'pointer'
+            || (el.classList?.length > 0 && window.getComputedStyle(el).cursor === 'pointer');
         const wasHover = document.body.classList.contains('ttb-cursor-hover');
         if (isPointer === wasHover) return;
         document.body.classList.toggle('ttb-cursor-hover', isPointer);
-        debugLog("states", `uiHover: element="${e.target.tagName}", isPointer=${isPointer}`);
+        debugLog("states", `uiHover: element="${el.tagName}", isPointer=${isPointer}`);
         _logCursorState();
     };
     document.addEventListener('mouseover', _uiHoverHandler);

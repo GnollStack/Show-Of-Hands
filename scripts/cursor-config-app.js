@@ -297,16 +297,18 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
             const previewImg = defaultSection.querySelector('.ttb-preview-img');
 
             // Position the label relative to the cursor image center in the preview
-            const positionLabel = (offsetX, offsetY) => {
+            const positionLabel = (positionName, offsetX, offsetY) => {
                 if (!previewWrapper || !dragLabel) return;
                 const imgW = previewImg?.offsetWidth || 64;
                 const imgH = previewImg?.offsetHeight || 64;
-                // Image is positioned at the start of the wrapper
-                const imgCenterX = imgW / 2;
-                const imgCenterY = imgH / 2;
+                const anchor = positionName === "custom"
+                    ? { anchorX: 0.5, anchorY: 0 }
+                    : (NAME_POSITION_PRESETS[positionName] || { anchorX: 0.5, anchorY: 0 });
                 const scale = 16;
-                const px = imgCenterX + (offsetX * scale) - (dragLabel.offsetWidth / 2);
-                const py = imgCenterY + (offsetY * scale);
+                const anchorX = (imgW / 2) + (offsetX * scale);
+                const anchorY = (imgH / 2) + (offsetY * scale);
+                const px = anchorX - (dragLabel.offsetWidth * anchor.anchorX);
+                const py = anchorY - (dragLabel.offsetHeight * anchor.anchorY);
                 dragLabel.style.left = `${px}px`;
                 dragLabel.style.top = `${py}px`;
             };
@@ -322,13 +324,13 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
                 hiddenX.value = preset.offsetX;
                 hiddenY.value = preset.offsetY;
                 setActivePreset(presetName);
-                positionLabel(preset.offsetX, preset.offsetY);
+                positionLabel(presetName, preset.offsetX, preset.offsetY);
             };
 
             // Init from current values
             setActivePreset(hiddenPos.value);
             requestAnimationFrame(() => {
-                positionLabel(parseFloat(hiddenX.value), parseFloat(hiddenY.value));
+                positionLabel(hiddenPos.value, parseFloat(hiddenX.value), parseFloat(hiddenY.value));
             });
 
             // Preset buttons
@@ -386,13 +388,14 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
             // Re-position label when image size/rotation changes
             const reposOnChange = () => {
                 requestAnimationFrame(() => {
-                    positionLabel(parseFloat(hiddenX.value), parseFloat(hiddenY.value));
+                    positionLabel(hiddenPos.value, parseFloat(hiddenX.value), parseFloat(hiddenY.value));
                 });
             };
             const wInput = defaultSection.querySelector('input[name="states.default.width"]');
             const hInput = defaultSection.querySelector('input[name="states.default.height"]');
             if (wInput) wInput.addEventListener('input', reposOnChange);
             if (hInput) hInput.addEventListener('input', reposOnChange);
+            if (previewImg) previewImg.addEventListener('load', reposOnChange);
         }
     }
 
@@ -416,6 +419,10 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
         const FDE = foundry.applications.ux?.FormDataExtended ?? FormDataExtended;
         const data = new FDE(form).object;
         debugLog("config", "onSubmit: raw FormDataExtended:", JSON.stringify(data, null, 2));
+        const parseNumber = (value, fallback) => {
+            const parsed = Number.parseFloat(value);
+            return Number.isFinite(parsed) ? parsed : fallback;
+        };
 
         const states = {};
 
@@ -446,8 +453,8 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
 
         // Save name label position
         const namePos = data.namePosition || "bottom-center";
-        const nameOffsetX = parseFloat(data.nameOffsetX) || 0;
-        const nameOffsetY = parseFloat(data.nameOffsetY) || 1.2;
+        const nameOffsetX = parseNumber(data.nameOffsetX, 0);
+        const nameOffsetY = parseNumber(data.nameOffsetY, 1.2);
         await game.settings.set(MODULE_ID, "cursor-name-position", namePos);
         await game.settings.set(MODULE_ID, "cursor-name-offset", { x: nameOffsetX, y: nameOffsetY });
 

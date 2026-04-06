@@ -83,7 +83,7 @@ Hooks.once('init', () => {
         scope: "client",
         config: true,
         type: Number,
-        default: 32,
+        default: 16,
         range: {
             min: 16,
             max: 128,
@@ -108,8 +108,8 @@ Hooks.once('init', () => {
     });
 
     game.settings.register(MODULE_ID, "show-cursor-names", {
-        name: "Show Module Cursor Names",
-        hint: "Display the player name label next to the module's shared cursor overlay.",
+        name: "Show Shared Cursor Names (Overlay)",
+        hint: "Display the module's shared-cursor name label next to remote cursors. This is the movable overlay label, not Foundry's built-in cursor name. To avoid duplicate names, set Built-In Foundry Cursor Elements to Dots Only or None.",
         scope: "client",
         config: true,
         type: Boolean,
@@ -118,8 +118,8 @@ Hooks.once('init', () => {
     });
 
     game.settings.register(MODULE_ID, "cursor-name-position", {
-        name: "Cursor Name Position",
-        hint: "Where to display the player name relative to the shared cursor. Set to 'Custom' to use your position from the Cursor Settings preview.",
+        name: "Shared Cursor Name Position",
+        hint: "Choose where the module overlay name appears relative to the shared cursor. Applies only when 'Show Shared Cursor Names (Overlay)' is enabled. Set to 'Custom' to use the dragged position from Cursor Settings.",
         scope: "client",
         config: true,
         type: String,
@@ -131,7 +131,10 @@ Hooks.once('init', () => {
             "right": "Right",
             "custom": "Custom (set in Cursor Settings)"
         },
-        onChange: (v) => updateOverlaySetting("namePosition", v)
+        onChange: (v) => {
+            updateOverlaySetting("namePosition", v);
+            refreshSharedCursorImage();
+        }
     });
 
     game.settings.register(MODULE_ID, "cursor-name-offset", {
@@ -139,12 +142,15 @@ Hooks.once('init', () => {
         config: false,
         type: Object,
         default: { x: 0, y: 1.2 },
-        onChange: (v) => updateOverlaySetting("nameOffset", v)
+        onChange: (v) => {
+            updateOverlaySetting("nameOffset", v);
+            refreshSharedCursorImage();
+        }
     });
 
     game.settings.register(MODULE_ID, "foundry-cursor-display", {
-        name: "Foundry Default Cursor Elements",
-        hint: "Control which of Foundry's built-in cursor elements (player name and color dot) are shown alongside the shared cursor overlay.",
+        name: "Built-In Foundry Cursor Elements",
+        hint: "Control Foundry's own cursor name and color dot separately from the module overlay. Use Dots Only or None if you only want the movable shared overlay name.",
         scope: "client",
         config: true,
         type: String,
@@ -210,9 +216,9 @@ Hooks.once('init', () => {
 
     // Settings menu
     game.settings.registerMenu(MODULE_ID, "cursor-config-menu", {
-        name: "Configure Cursors",
+        name: "Configure Cursors & Overlay Name",
         label: "Cursor Settings",
-        hint: "Upload custom cursor images and configure cursors for different interaction states",
+        hint: "Upload custom cursor images for each state and position the module's shared overlay name label",
         icon: "fas fa-mouse-pointer",
         type: CursorConfigApp,
         restricted: false
@@ -253,6 +259,12 @@ Hooks.on('canvasTearDown', () => {
     cleanupMarqueeListener();
     stopCursorSharing();
     destroyCursorOverlay();
+});
+
+Hooks.on('updateUser', (user, change) => {
+    if (user.id !== game.user.id) return;
+    if (!Object.prototype.hasOwnProperty.call(change, "name")) return;
+    refreshSharedCursorImage();
 });
 
 Hooks.once('ready', async () => {

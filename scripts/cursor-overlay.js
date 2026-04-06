@@ -2,11 +2,12 @@ import { MODULE_ID, CURSOR_POINTER_SIZE, CURSOR_FADE_TIMEOUT_MS, CURSOR_LERP_SPE
 
 let _container = null;
 const _cursors = new Map();
+const _pendingImages = new Map();
 let _tickerCallback = null;
 
 // Cached settings — updated via onChange callbacks, avoids per-frame game.settings.get()
 const _settings = {
-    cursorSize: 32,
+    cursorSize: 16,
     cursorOpacity: 1,
     showNames: false,
     foundryCursorDisplay: "both",
@@ -18,6 +19,12 @@ const _settings = {
 
 export function updateOverlaySetting(key, value) {
     _settings[key] = value;
+    // Invalidate foundry cursor cache when display setting changes
+    if (key === "foundryCursorDisplay") { _lastFoundryNames = null; _lastFoundryDots = null; }
+    // Invalidate name positioning when name-related settings change
+    if (key === "namePosition" || key === "nameOffset" || key === "showNames") {
+        for (const [, entry] of _cursors) entry.nameDirty = true;
+    }
 }
 
 export function initCursorOverlay() {
@@ -40,11 +47,21 @@ export function destroyCursorOverlay() {
         canvas.app.ticker.remove(_tickerCallback);
         _tickerCallback = null;
     }
+    // Destroy sprite textures before container teardown to prevent cache leaks
+    for (const [, entry] of _cursors) {
+        if (entry.sprite) {
+            entry.sprite.destroy({ texture: true, baseTexture: true });
+            entry.sprite = null;
+        }
+    }
     if (_container) {
         _container.destroy({ children: true });
         _container = null;
     }
     _cursors.clear();
+    _pendingImages.clear();
+    _lastFoundryNames = null;
+    _lastFoundryDots = null;
     debugLog("sharing", "Cursor overlay destroyed");
 }
 
@@ -77,29 +94,34 @@ export function updateRemoteCursor(userId, worldX, worldY) {
     }
 }
 
-export function updateRemoteCursorImage(userId, imageDataUrl, hotspotX, hotspotY, namePosition, nameOffset) {
-    if (!_container) return;
+export function updateRemoteCursorImage(userId, imageDataUrl, hotspotX, hotspotY, playerName, namePosition, nameOffset) {
     if (userId === game.user.id) return;
 
     const entry = _cursors.get(userId);
-    if (!entry) {
+    if (!_container || !entry) {
         // Store pending image data for when cursor is created
-        _pendingImages.set(userId, { imageDataUrl, hotspotX, hotspotY, namePosition, nameOffset });
+        _pendingImages.set(userId, { imageDataUrl, hotspotX, hotspotY, playerName, namePosition, nameOffset });
         return;
     }
+
+    _setCursorLabel(entry, playerName);
 
     // Store per-cursor name position from the cursor owner's settings
     if (namePosition) entry.namePosition = namePosition;
     if (nameOffset) entry.nameOffset = nameOffset;
+    entry.nameDirty = true;
 
     _applyCursorImage(entry, imageDataUrl, hotspotX, hotspotY);
 }
 
-const _pendingImages = new Map();
-
 export function removeRemoteCursor(userId) {
     const entry = _cursors.get(userId);
     if (entry) {
+        if (entry.sprite) {
+            entry.container.removeChild(entry.sprite);
+            entry.sprite.destroy({ texture: true, baseTexture: true });
+            entry.sprite = null;
+        }
         entry.container.destroy({ children: true });
         _cursors.delete(userId);
         debugLog("sharing", `Removed cursor for user ${userId}`);
@@ -170,12 +192,15 @@ function _getOrCreateCursor(userId) {
         idleDot,
         idleText,
         sprite: null,
+        playerName: user.name,
         targetX: 0,
         targetY: 0,
         initialized: false,
         lastUpdate: Date.now(),
+        baseSize: CURSOR_POINTER_SIZE,
         namePosition: null,
-        nameOffset: null
+        nameOffset: null,
+        nameDirty: true
     };
     _cursors.set(userId, entry);
     debugLog("sharing", `Created cursor for ${user.name}`);
@@ -183,6 +208,7 @@ function _getOrCreateCursor(userId) {
     // Apply pending custom image if one was received before cursor creation
     const pending = _pendingImages.get(userId);
     if (pending) {
+        _setCursorLabel(entry, pending.playerName);
         if (pending.namePosition) entry.namePosition = pending.namePosition;
         if (pending.nameOffset) entry.nameOffset = pending.nameOffset;
         _applyCursorImage(entry, pending.imageDataUrl, pending.hotspotX, pending.hotspotY);
@@ -192,17 +218,26 @@ function _getOrCreateCursor(userId) {
     return entry;
 }
 
+function _setCursorLabel(entry, playerName) {
+    if (typeof playerName !== "string" || !playerName.length) return;
+    entry.playerName = playerName;
+    entry.text.text = playerName;
+    entry.idleText.text = playerName;
+}
+
 function _applyCursorImage(entry, imageDataUrl, hotspotX, hotspotY) {
-    // Remove old sprite if exists
+    // Remove old sprite and its texture to prevent PIXI texture cache leaks
     if (entry.sprite) {
         entry.container.removeChild(entry.sprite);
-        entry.sprite.destroy();
+        entry.sprite.destroy({ texture: true, baseTexture: true });
         entry.sprite = null;
     }
 
     if (!imageDataUrl) {
         // Revert to arrow
         entry.arrow.visible = true;
+        entry.baseSize = CURSOR_POINTER_SIZE;
+        entry.nameDirty = true;
         return;
     }
 
@@ -221,15 +256,24 @@ function _applyCursorImage(entry, imageDataUrl, hotspotX, hotspotY) {
 
         entry.sprite = sprite;
         entry.arrow.visible = false;
+        entry.baseSize = Math.max(img.width, img.height) || CURSOR_POINTER_SIZE;
         entry.container.addChildAt(sprite, 0);
+        entry.nameDirty = true;
 
         debugLog("sharing", `Applied custom cursor image for user, size=${img.width}x${img.height}`);
     };
     img.onerror = () => {
         console.warn(`${MODULE_ID} | Failed to load shared cursor image`);
+        entry.arrow.visible = true;
+        entry.baseSize = CURSOR_POINTER_SIZE;
+        entry.nameDirty = true;
     };
     img.src = imageDataUrl;
 }
+
+// Cached values to avoid redundant per-frame work
+let _lastFoundryNames = null;
+let _lastFoundryDots = null;
 
 function _updateFoundryCursors(showFoundryNames, showFoundryDots) {
     const foundryCursors = canvas.controls?.cursors;
@@ -250,41 +294,69 @@ function _tick() {
     const now = Date.now();
     const zoom = canvas.stage.scale.x || 1;
     const { cursorSize, cursorOpacity, showNames, foundryCursorDisplay, namePosition, nameOffset } = _settings;
-    // Scale cursors to maintain consistent screen size regardless of zoom
-    const worldScale = cursorSize / (CURSOR_POINTER_SIZE * zoom);
-    // Hide Foundry's native cursor elements (color dot + player name) per settings
+
+    // Only update Foundry's native cursor elements when the setting actually changes
     const showFoundryNames = foundryCursorDisplay === "both" || foundryCursorDisplay === "names-only";
     const showFoundryDots = foundryCursorDisplay === "both" || foundryCursorDisplay === "dots-only";
-    _updateFoundryCursors(showFoundryNames, showFoundryDots);
+    if (showFoundryNames !== _lastFoundryNames || showFoundryDots !== _lastFoundryDots) {
+        _lastFoundryNames = showFoundryNames;
+        _lastFoundryDots = showFoundryDots;
+        _updateFoundryCursors(showFoundryNames, showFoundryDots);
+    }
 
     for (const [, entry] of _cursors) {
         // Toggle module overlay name label visibility and position
-        // Use per-cursor name position (from cursor owner's settings), fall back to viewer's settings
+        // Only recalculate positioning when something changed (nameDirty flag)
         if (showNames) {
-            const s = CURSOR_POINTER_SIZE;
-            const cursorNamePos = entry.namePosition || namePosition;
-            const cursorNameOff = entry.nameOffset || nameOffset;
+            if (entry.nameDirty) {
+                const s = CURSOR_POINTER_SIZE;
+                const cursorNamePos = entry.namePosition || namePosition;
+                const cursorNameOff = entry.nameOffset || nameOffset;
 
-            // The config preview positions the name relative to the image center,
-            // but the container origin (0,0) is the hotspot. Compute the offset
-            // from hotspot to image center so positions match the preview.
-            let centerOffX = 0, centerOffY = 0;
-            if (entry.sprite && entry.sprite.texture) {
-                const sw = entry.sprite.texture.width;
-                const sh = entry.sprite.texture.height;
-                centerOffX = sw * (0.5 - entry.sprite.anchor.x);
-                centerOffY = sh * (0.5 - entry.sprite.anchor.y);
-            }
-
-            if (cursorNamePos === "custom") {
-                entry.text.anchor.set(0.5, 0);
-                entry.text.position.set(centerOffX + s * cursorNameOff.x, centerOffY + s * cursorNameOff.y);
-            } else {
-                const preset = NAME_POSITION_PRESETS[cursorNamePos];
-                if (preset) {
-                    entry.text.anchor.set(preset.anchorX, preset.anchorY);
-                    entry.text.position.set(centerOffX + s * preset.offsetX, centerOffY + s * preset.offsetY);
+                // The config preview positions the name relative to the image center,
+                // but the container origin (0,0) is the hotspot. Compute the offset
+                // from hotspot to image center so positions match the preview.
+                let centerOffX = 0, centerOffY = 0;
+                if (entry.sprite && entry.sprite.texture) {
+                    const sw = entry.sprite.texture.width;
+                    const sh = entry.sprite.texture.height;
+                    centerOffX = sw * (0.5 - entry.sprite.anchor.x);
+                    centerOffY = sh * (0.5 - entry.sprite.anchor.y);
                 }
+
+                if (cursorNamePos === "custom") {
+                    entry.text.anchor.set(0.5, 0);
+                    entry.text.position.set(centerOffX + s * cursorNameOff.x, centerOffY + s * cursorNameOff.y);
+                } else {
+                    const preset = NAME_POSITION_PRESETS[cursorNamePos];
+                    if (preset) {
+                        entry.text.anchor.set(preset.anchorX, preset.anchorY);
+                        let posX = centerOffX + s * preset.offsetX;
+                        let posY = centerOffY + s * preset.offsetY;
+
+                        // For sprites, clamp so the name doesn't overlap the image
+                        if (entry.sprite && entry.sprite.texture) {
+                            const sw = entry.sprite.texture.width;
+                            const sh = entry.sprite.texture.height;
+                            const gap = s * 0.2;
+                            // Push past bottom edge for bottom-anchored labels (anchorY 0 = text top at pos)
+                            if (preset.anchorY === 0) {
+                                posY = Math.max(posY, sh * (1 - entry.sprite.anchor.y) + gap);
+                            }
+                            // Push above top edge for top-anchored labels (anchorY 1 = text bottom at pos)
+                            if (preset.anchorY === 1) {
+                                posY = Math.min(posY, -sh * entry.sprite.anchor.y - gap);
+                            }
+                            // Push past right edge for left-anchored labels (anchorX 0 = text left at pos)
+                            if (preset.anchorX === 0) {
+                                posX = Math.max(posX, sw * (1 - entry.sprite.anchor.x) + gap);
+                            }
+                        }
+
+                        entry.text.position.set(posX, posY);
+                    }
+                }
+                entry.nameDirty = false;
             }
             entry.text.visible = true;
         } else {
@@ -309,6 +381,8 @@ function _tick() {
         }
 
         // Apply zoom-compensating scale
+        const baseSize = entry.baseSize || CURSOR_POINTER_SIZE;
+        const worldScale = cursorSize / (baseSize * zoom);
         entry.container.scale.set(worldScale);
 
         // Apply base opacity, with fade-out after timeout
