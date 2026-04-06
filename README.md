@@ -200,5 +200,3 @@ target-the-beastie/
 - Set Debug Mode to **Marquee Box Select** to see selection details
 
 ## License
-
-MIT
