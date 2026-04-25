@@ -244,6 +244,29 @@ target-the-beastie/
 - Players can only target tokens visible to them
 - Set Debug Mode to **Marquee Box Select** to see selection details
 
-## License
+---
 
-MIT
+## ⚖️ License & Permissions
+
+### Proprietary EULA
+This module is licensed under the **GnollStack Proprietary EULA**.
+It is **free for personal use** — you can use it in your home games, stream it, or modify it for your own table without restriction.
+
+**Commercial redistribution is strictly prohibited.**
+You may not sell this module, bundle it within paid content (such as Patreon maps or adventures), or host it as a commercial service without prior written consent.
+
+### Commercial Licensing
+I am open to partnerships. If you are a map maker, adventure writer, or developer who wishes to use this module commercially, please get in touch. Commercial licenses are available for:
+* Bundling with paid VTT content
+* Official integration into commercial systems
+* Custom feature development
+
+### Contact
+For licensing inquiries or permission slips:
+* **Discord:** `GnollStack` (Preferred)
+* **Email:** `Somedudeed@gmail.com`
+* *Please do not open GitHub Issues for commercial licensing discussions. But feel free to contact me via Discord or Email*
+
+Please do not open GitHub issues for commercial licensing discussions.
+
+---
