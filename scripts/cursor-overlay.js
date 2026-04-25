@@ -4,6 +4,7 @@ let _container = null;
 const _cursors = new Map();
 const _pendingImages = new Map();
 let _tickerCallback = null;
+let _imageLoadSerial = 0;
 
 // Cached settings — updated via onChange callbacks, avoids per-frame game.settings.get()
 const _settings = {
@@ -200,7 +201,8 @@ function _getOrCreateCursor(userId) {
         baseSize: CURSOR_POINTER_SIZE,
         namePosition: null,
         nameOffset: null,
-        nameDirty: true
+        nameDirty: true,
+        imageLoadId: 0
     };
     _cursors.set(userId, entry);
     debugLog("sharing", `Created cursor for ${user.name}`);
@@ -226,6 +228,9 @@ function _setCursorLabel(entry, playerName) {
 }
 
 function _applyCursorImage(entry, imageDataUrl, hotspotX, hotspotY) {
+    const imageLoadId = ++_imageLoadSerial;
+    entry.imageLoadId = imageLoadId;
+
     // Remove old sprite and its texture to prevent PIXI texture cache leaks
     if (entry.sprite) {
         entry.container.removeChild(entry.sprite);
@@ -244,6 +249,7 @@ function _applyCursorImage(entry, imageDataUrl, hotspotX, hotspotY) {
     const img = new Image();
     img.onload = () => {
         if (!entry.container || entry.container.destroyed) return;
+        if (entry.imageLoadId !== imageLoadId) return;
 
         const texture = PIXI.Texture.from(img);
         const sprite = new PIXI.Sprite(texture);
@@ -263,6 +269,7 @@ function _applyCursorImage(entry, imageDataUrl, hotspotX, hotspotY) {
         debugLog("sharing", `Applied custom cursor image for user, size=${img.width}x${img.height}`);
     };
     img.onerror = () => {
+        if (entry.imageLoadId !== imageLoadId) return;
         console.warn(`${MODULE_ID} | Failed to load shared cursor image`);
         entry.arrow.visible = true;
         entry.baseSize = CURSOR_POINTER_SIZE;

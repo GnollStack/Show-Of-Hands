@@ -2,19 +2,139 @@ export const MODULE_ID = "target-the-beastie";
 export const STYLE_ID = `${MODULE_ID}-cursor-style`;
 export const DEFAULT_CURSOR_PATH = `modules/${MODULE_ID}/assets/AOM_cursor_pointer.png`;
 export const DEFAULT_HOTSPOT = { x: 4, y: 4 };
-export const CURSOR_STATE_KEYS = ["default", "hover", "targeting", "panning"];
 export const SOCKET_EVENT = `module.${MODULE_ID}`;
 export const CURSOR_SHARE_THROTTLE_MS = 33;
 export const CURSOR_FADE_TIMEOUT_MS = 5000;
 export const CURSOR_POINTER_SIZE = 16;
 export const CURSOR_LERP_SPEED = 0.1;
 
-export const CURSOR_STATE_LABELS = {
-    default: "Default",
-    hover: "Hover (over token)",
-    targeting: "Targeting Mode",
-    panning: "Panning / Dragging"
-};
+export const CURSOR_STATE_DEFINITIONS = Object.freeze([
+    {
+        key: "default",
+        tabLabel: "Default",
+        label: "Default",
+        description: "Normal cursor on empty canvas areas and non-interactive UI.",
+        nativeDefault: "Browser default arrow",
+        nativeCursor: "default",
+        demoCursor: "default",
+        demoActiveCursor: "default",
+        demoHint: "Hover this box to feel the native default cursor.",
+        enableToggle: false,
+        disabledFallbackKey: null
+    },
+    {
+        key: "hover",
+        tabLabel: "Hover",
+        label: "Hover / Clickable",
+        description: "Used over hovered tokens and clickable Foundry controls.",
+        nativeDefault: "Pointing hand",
+        nativeCursor: "pointer",
+        demoCursor: "pointer",
+        demoActiveCursor: "pointer",
+        demoHint: "Hover this box to preview Foundry's native clickable cursor.",
+        enableToggle: true,
+        disabledFallbackKey: "default"
+    },
+    {
+        key: "click",
+        tabLabel: "Click",
+        label: "Click / Press",
+        description: "Used while holding the mouse on clickable controls and pointer-mode canvas interactions.",
+        nativeDefault: "Pressed clickable cursor",
+        nativeCursor: "pointer",
+        demoCursor: "pointer",
+        demoActiveCursor: "pointer",
+        demoHint: "Press and hold this box to preview the native pressed clickable cursor.",
+        enableToggle: true,
+        disabledFallbackKey: "hover"
+    },
+    {
+        key: "drag",
+        tabLabel: "Grab",
+        label: "Hover To Drag",
+        description: "Used over draggable headers, item rows, and other drag sources.",
+        nativeDefault: "Open-hand grab",
+        nativeCursor: "grab",
+        demoCursor: "grab",
+        demoActiveCursor: "grab",
+        demoHint: "Hover this box to preview Foundry's native drag-ready cursor.",
+        enableToggle: true,
+        disabledFallbackKey: "default"
+    },
+    {
+        key: "dragging",
+        tabLabel: "Dragging",
+        label: "Dragging",
+        description: "Used while actively dragging draggable UI elements or drag sources.",
+        nativeDefault: "Closed-hand grabbing",
+        nativeCursor: "grabbing",
+        demoCursor: "grab",
+        demoActiveCursor: "grabbing",
+        demoHint: "Press and hold this box to preview the native dragging cursor.",
+        enableToggle: true,
+        disabledFallbackKey: "drag"
+    },
+    {
+        key: "resize",
+        tabLabel: "Resize",
+        label: "Resize",
+        description: "Used over Foundry window resize handles.",
+        nativeDefault: "Diagonal resize handle",
+        nativeCursor: "nwse-resize",
+        demoCursor: "nwse-resize",
+        demoActiveCursor: "nwse-resize",
+        demoHint: "Hover this box to preview the native resize cursor.",
+        enableToggle: true,
+        disabledFallbackKey: "default"
+    },
+    {
+        key: "text",
+        tabLabel: "Text",
+        label: "Text Editing",
+        description: "Used over text fields, editors, and editable content.",
+        nativeDefault: "I-beam text cursor",
+        nativeCursor: "text",
+        demoCursor: "text",
+        demoActiveCursor: "text",
+        demoHint: "Hover this box to preview the native text-editing cursor.",
+        enableToggle: true,
+        disabledFallbackKey: "default"
+    },
+    {
+        key: "targeting",
+        tabLabel: "Target",
+        label: "Targeting Mode",
+        description: "Used when the targeting tool is active on the canvas.",
+        nativeDefault: "Crosshair targeting cursor",
+        nativeCursor: "crosshair",
+        demoCursor: "crosshair",
+        demoActiveCursor: "crosshair",
+        demoHint: "Hover this box to preview the native targeting cursor.",
+        enableToggle: true,
+        disabledFallbackKey: "default"
+    },
+    {
+        key: "panning",
+        tabLabel: "Panning",
+        label: "Panning / Dragging",
+        description: "Used while right-dragging the canvas to pan the scene.",
+        nativeDefault: "Closed-hand panning cursor",
+        nativeCursor: "grabbing",
+        demoCursor: "grab",
+        demoActiveCursor: "grabbing",
+        demoHint: "Press and hold this box to preview the native panning cursor.",
+        enableToggle: true,
+        disabledFallbackKey: "default"
+    }
+]);
+
+export const CURSOR_STATE_KEYS = CURSOR_STATE_DEFINITIONS.map(state => state.key);
+export const CURSOR_STATE_LABELS = Object.freeze(
+    Object.fromEntries(CURSOR_STATE_DEFINITIONS.map(state => [state.key, state.label]))
+);
+export const CURSOR_STATE_DETAILS = Object.freeze(
+    Object.fromEntries(CURSOR_STATE_DEFINITIONS.map(state => [state.key, state]))
+);
 
 export const NAME_POSITION_PRESETS = {
     "bottom-center": { anchorX: 0.5, anchorY: 0, offsetX: 0, offsetY: 1.2 },

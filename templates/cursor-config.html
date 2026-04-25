@@ -3,7 +3,7 @@
     <nav class="ttb-tabs">
         {{#each states}}
         <button type="button" class="ttb-tab-btn {{#if @first}}active{{/if}}" data-tab="{{key}}">
-            {{label}}
+            {{tabLabel}}
         </button>
         {{/each}}
     </nav>
@@ -11,13 +11,36 @@
     {{#each states}}
     <div class="ttb-tab-content {{#if @first}}active{{/if}}" data-tab="{{key}}">
 
+        <div class="ttb-state-summary">
+            <div class="ttb-state-heading">
+                <h3>{{label}}</h3>
+                <div class="ttb-state-chips">
+                    <span class="ttb-state-chip">Native Default: {{nativeDefault}}</span>
+                    {{#unless isDefault}}
+                    <span class="ttb-state-chip">Disabled: Uses {{disabledFallbackLabel}}</span>
+                    {{/unless}}
+                </div>
+            </div>
+            <p class="ttb-notes">{{description}}</p>
+            <div class="ttb-native-preview" style="--ttb-demo-cursor: {{demoCursor}}; --ttb-demo-active-cursor: {{demoActiveCursor}};">
+                {{demoHint}}
+            </div>
+            <p class="ttb-notes">
+                {{#if isDefault}}
+                This is the baseline cursor used when no more specific state overrides it.
+                {{else}}
+                When this state is enabled but the image is empty, Foundry's native {{nativeDefault}} cursor is used.
+                {{/if}}
+            </p>
+        </div>
+
         {{#unless isDefault}}
         <div class="ttb-form-group">
             <label class="ttb-toggle-label">
                 <input type="checkbox" name="states.{{key}}.enabled" {{checked enabled}}>
                 Enable separate cursor for {{label}}
             </label>
-            <p class="ttb-notes">When disabled, the Default cursor is used for this state.</p>
+            <p class="ttb-notes">When disabled, this state falls back to {{disabledFallbackLabel}}.</p>
         </div>
         {{/unless}}
 
@@ -32,6 +55,11 @@
                     <button type="button" class="ttb-aom-btn" title="Use AoM default cursor">
                         <i class="fas fa-undo"></i>
                     </button>
+                    {{#unless isDefault}}
+                    <button type="button" class="ttb-clear-btn" title="Use Foundry native cursor for this state">
+                        <i class="fas fa-xmark"></i>
+                    </button>
+                    {{/unless}}
                 </div>
             </div>
 
@@ -107,7 +135,7 @@
             <div class="ttb-form-group">
                 <p class="ttb-notes ttb-tip">
                     Tip: For arrow cursors, the click point is usually at the tip of the arrow (around X: 4, Y: 4).
-                    Cursor images should be 128x128 pixels or smaller.
+                    Cursor images should be 128x128 pixels or smaller. Use the X button above to clear the image and preview Foundry's native {{nativeDefault}} fallback for this state.
                 </p>
             </div>
         </div>

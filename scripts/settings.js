@@ -1,42 +1,81 @@
-import { MODULE_ID, DEFAULT_CURSOR_PATH, DEFAULT_HOTSPOT, debugLog } from './constants.js';
+import { MODULE_ID, DEFAULT_CURSOR_PATH, DEFAULT_HOTSPOT, CURSOR_STATE_KEYS, debugLog } from './constants.js';
 
-export function getDefaultCursorStates() {
+const CURRENT_SETTINGS_VERSION = 3;
+
+function hasStoredClientSetting(key) {
+    const storage = game.settings.storage.get("client");
+    const settingId = `${MODULE_ID}.${key}`;
+    return storage ? storage.getItem(settingId) !== null : false;
+}
+
+function getStoredSettingsVersion() {
+    if (!hasStoredClientSetting("settings-version")) {
+        return hasStoredClientSetting("cursor-states") ? 2 : 0;
+    }
+
+    const version = Number(game.settings.get(MODULE_ID, "settings-version"));
+    return Number.isFinite(version) ? version : 0;
+}
+
+function createDefaultState(key) {
     return {
-        default: { image: DEFAULT_CURSOR_PATH, hotspotX: DEFAULT_HOTSPOT.x, hotspotY: DEFAULT_HOTSPOT.y, rotation: 0, width: 0, height: 0, enabled: true },
-        hover: { image: "", hotspotX: 0, hotspotY: 0, rotation: 0, width: 0, height: 0, enabled: false },
-        targeting: { image: "", hotspotX: 0, hotspotY: 0, rotation: 0, width: 0, height: 0, enabled: false },
-        panning: { image: "", hotspotX: 0, hotspotY: 0, rotation: 0, width: 0, height: 0, enabled: false }
+        image: key === "default" ? DEFAULT_CURSOR_PATH : "",
+        hotspotX: key === "default" ? DEFAULT_HOTSPOT.x : 0,
+        hotspotY: key === "default" ? DEFAULT_HOTSPOT.y : 0,
+        rotation: 0,
+        width: 0,
+        height: 0,
+        enabled: key === "default"
     };
 }
 
+export function getDefaultCursorStates() {
+    return Object.fromEntries(CURSOR_STATE_KEYS.map(key => [key, createDefaultState(key)]));
+}
+
 export async function migrateSettings() {
-    try {
-        const version = game.settings.get(MODULE_ID, "settings-version");
-        if (version >= 2) return;
-    } catch {
-        // Setting doesn't exist yet, proceed with migration
-    }
+    let version = getStoredSettingsVersion();
 
-    debugLog("cursor", "Migrating settings to v2...");
+    if (version >= CURRENT_SETTINGS_VERSION) return;
 
     try {
-        let oldEnabled = true;
-        let oldHotspotX = DEFAULT_HOTSPOT.x;
-        let oldHotspotY = DEFAULT_HOTSPOT.y;
+        if (version < 2) {
+            debugLog("cursor", "Migrating settings to v2...");
 
-        try { oldEnabled = game.settings.get(MODULE_ID, "use-aom-cursor"); } catch { /* legacy setting may not exist */ }
-        try { oldHotspotX = game.settings.get(MODULE_ID, "cursor-hotspot-x"); } catch { /* legacy setting may not exist */ }
-        try { oldHotspotY = game.settings.get(MODULE_ID, "cursor-hotspot-y"); } catch { /* legacy setting may not exist */ }
+            let oldEnabled = true;
+            let oldHotspotX = DEFAULT_HOTSPOT.x;
+            let oldHotspotY = DEFAULT_HOTSPOT.y;
 
-        const states = getDefaultCursorStates();
-        states.default.hotspotX = oldHotspotX;
-        states.default.hotspotY = oldHotspotY;
+            try { oldEnabled = game.settings.get(MODULE_ID, "use-aom-cursor"); } catch { /* legacy setting may not exist */ }
+            try { oldHotspotX = game.settings.get(MODULE_ID, "cursor-hotspot-x"); } catch { /* legacy setting may not exist */ }
+            try { oldHotspotY = game.settings.get(MODULE_ID, "cursor-hotspot-y"); } catch { /* legacy setting may not exist */ }
 
-        await game.settings.set(MODULE_ID, "use-custom-cursor", oldEnabled);
-        await game.settings.set(MODULE_ID, "cursor-states", states);
-        await game.settings.set(MODULE_ID, "settings-version", 2);
+            const states = getDefaultCursorStates();
+            states.default.hotspotX = oldHotspotX;
+            states.default.hotspotY = oldHotspotY;
 
-        debugLog("cursor", "Migration complete.");
+            await game.settings.set(MODULE_ID, "use-custom-cursor", oldEnabled);
+            await game.settings.set(MODULE_ID, "cursor-states", states);
+            version = 2;
+        }
+
+        if (version < CURRENT_SETTINGS_VERSION) {
+            debugLog("cursor", `Migrating settings to v${CURRENT_SETTINGS_VERSION}...`);
+            const defaults = getDefaultCursorStates();
+            const existingStates = game.settings.get(MODULE_ID, "cursor-states") ?? {};
+            const mergedStates = foundry.utils.mergeObject(defaults, existingStates, {
+                inplace: false,
+                insertKeys: true,
+                insertValues: true,
+                overwrite: true
+            });
+
+            await game.settings.set(MODULE_ID, "cursor-states", mergedStates);
+            version = CURRENT_SETTINGS_VERSION;
+        }
+
+        await game.settings.set(MODULE_ID, "settings-version", version);
+        debugLog("cursor", `Migration complete (v${version}).`);
     } catch (e) {
         console.warn(`${MODULE_ID} | Migration failed, using defaults.`, e);
     }

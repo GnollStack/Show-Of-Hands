@@ -37,6 +37,7 @@ export function startCursorSharing() {
 
     // Build and broadcast our custom cursor image
     _broadcastCursorImage();
+    _requestCursorImages();
 
     debugLog("sharing", "Cursor sharing started successfully");
 }
@@ -180,6 +181,15 @@ function _emitCursorImage(dataUrl, hotspotX, hotspotY) {
     debugLog("sharing", "Broadcast cursor image", dataUrl ? `(${dataUrl.length} bytes)` : "(cleared)");
 }
 
+function _requestCursorImages(targetUserId = null) {
+    game.socket.emit(SOCKET_EVENT, {
+        type: "requestCursorImage",
+        userId: game.user.id,
+        targetUserId
+    });
+    debugLog("sharing", targetUserId ? `Requested cursor image from ${targetUserId}` : "Requested cursor images from active peers");
+}
+
 function _onSocketMessage(data) {
     debugLog("sharing", `Socket received: type=${data.type}, userId=${data.userId}, sceneId=${data.sceneId}`);
     if (data.type === "cursorMove") {
@@ -196,12 +206,15 @@ function _onSocketMessage(data) {
             data.nameOffset
         );
     } else if (data.type === "requestCursorImage") {
+        if (data.userId === game.user.id) return;
+        if (data.targetUserId && data.targetUserId !== game.user.id) return;
         // Another user is asking us for our cursor image
         _emitCursorImage(_cachedCursorDataUrl, _cachedHotspotX, _cachedHotspotY);
     }
 }
 
 function _onUserConnected(user, connected) {
+    if (user.id === game.user.id) return;
     if (!connected) {
         removeRemoteCursor(user.id);
         debugLog("sharing", `User disconnected: ${user.name}`);
@@ -209,10 +222,7 @@ function _onUserConnected(user, connected) {
         // New user joined — send them our cursor image
         _emitCursorImage(_cachedCursorDataUrl, _cachedHotspotX, _cachedHotspotY);
         // Request their cursor image
-        game.socket.emit(SOCKET_EVENT, {
-            type: "requestCursorImage",
-            userId: game.user.id
-        });
+        _requestCursorImages(user.id);
         debugLog("sharing", `User connected: ${user.name}, exchanging cursor images`);
     }
 }

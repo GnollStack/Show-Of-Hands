@@ -7,7 +7,10 @@ import { performSingleTarget } from './targeting.js';
 
 let _startX = 0;
 let _startY = 0;
+let _startScreenX = 0;
+let _startScreenY = 0;
 let _isDragging = false;
+let _movedBeyondThreshold = false;
 let _graphics = null;
 let _onPointerDown = null;
 let _onPointerMove = null;
@@ -33,10 +36,10 @@ export function toggleMarqueeListener(isEnabled) {
     if (isEnabled) {
         _onPointerDown = _handlePointerDown.bind(null);
         stage.on('pointerdown', _onPointerDown);
-        debugLog("marquee", "Mousewheel targeting + marquee select enabled.");
+        debugLog("marquee", "Middle-mouse targeting/marquee listener enabled.");
     } else {
         _onPointerDown = null;
-        debugLog("marquee", "Mousewheel targeting + marquee select disabled.");
+        debugLog("marquee", "Middle-mouse targeting/marquee listener disabled.");
     }
 }
 
@@ -58,13 +61,18 @@ function _handlePointerDown(event) {
     const stage = canvas?.app?.stage;
     if (!stage) return;
 
+    // Defensive: if a prior session never received a pointerup (e.g. focus loss
+    // during drag), wipe its lingering listeners and graphics before starting fresh.
+    _cleanupDragState();
+
     // Record start position in world space
     const worldPos = canvas.stage.toLocal(event.global);
     _startX = worldPos.x;
     _startY = worldPos.y;
-    _isDragging = false;
+    _startScreenX = event.global.x;
+    _startScreenY = event.global.y;
 
-    debugLog("marquee", "Pointer down at world:", _startX, _startY);
+    debugLog("marquee", "Pointer down at world:", _startX, _startY, "screen:", _startScreenX, _startScreenY);
 
     // Attach move and up listeners for this drag session
     _onPointerMove = _handlePointerMove.bind(null);
@@ -76,19 +84,20 @@ function _handlePointerDown(event) {
 
 function _handlePointerMove(event) {
     const worldPos = canvas.stage.toLocal(event.global);
-    const dx = worldPos.x - _startX;
-    const dy = worldPos.y - _startY;
+    const dx = event.global.x - _startScreenX;
+    const dy = event.global.y - _startScreenY;
     const distance = Math.sqrt(dx * dx + dy * dy);
 
     if (!_isDragging) {
         if (distance < MARQUEE_DRAG_THRESHOLD) return;
+        _movedBeyondThreshold = true;
 
         // Check if marquee select is enabled before starting drag
         const marqueeEnabled = game.settings.get(MODULE_ID, "use-marquee-select");
         if (!marqueeEnabled) return;
 
         _isDragging = true;
-        debugLog("marquee", "Drag started, threshold exceeded");
+        debugLog("marquee", "Drag started, screen threshold exceeded");
 
         // Create graphics object for the selection rectangle
         _graphics = new PIXI.Graphics();
@@ -112,12 +121,11 @@ function _handlePointerUp(event) {
         debugLog("marquee", `Marquee select complete. Found ${tokens.length} tokens in rect`, rect);
 
         _targetTokens(tokens, isShift);
-    } else {
-        // No drag — treat as single-click targeting
-        const targetingEnabled = game.settings.get(MODULE_ID, "use-mousewheel-targeting");
-        if (targetingEnabled) {
-            performSingleTarget(isShift);
-        }
+    } else if (!_movedBeyondThreshold) {
+        // No drag — single-click path. performSingleTarget self-gates on
+        // `use-mousewheel-targeting` (on-token branch) and on
+        // `clear-targets-on-empty-click` (empty-canvas branch).
+        performSingleTarget(isShift);
     }
 
     // Clean up drag state
@@ -175,11 +183,12 @@ function _getTokensInRect(rect) {
  * @param {boolean} additive - If true, add to existing targets instead of replacing
  */
 function _targetTokens(tokens, additive) {
-    // If not additive, clear existing targets first
+    // If not additive, clear existing targets first. Snapshot the Set to an
+    // array so iteration is unaffected by setTarget(false) mutating game.user.targets.
     if (!additive) {
-        game.user.targets.forEach(t => {
+        for (const t of [...game.user.targets]) {
             t.setTarget(false, { user: game.user, releaseOthers: false });
-        });
+        }
     }
 
     // Target each token in the selection
@@ -210,4 +219,5 @@ function _cleanupDragState() {
     _onPointerMove = null;
     _onPointerUp = null;
     _isDragging = false;
+    _movedBeyondThreshold = false;
 }

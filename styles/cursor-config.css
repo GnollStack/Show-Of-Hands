@@ -8,10 +8,11 @@
     margin-bottom: 16px;
     border-bottom: 2px solid #999;
     padding-bottom: 0;
+    flex-wrap: wrap;
 }
 
 .ttb-cursor-config .ttb-tab-btn {
-    padding: 6px 14px;
+    padding: 6px 12px;
     border: 1px solid #999;
     border-bottom: none;
     border-radius: 4px 4px 0 0;
@@ -42,6 +43,57 @@
     display: block;
 }
 
+.ttb-cursor-config .ttb-state-summary {
+    margin-bottom: 14px;
+    padding: 12px;
+    border: 1px solid #c8c8c8;
+    border-radius: 8px;
+    background: #f7f7f7;
+}
+
+.ttb-cursor-config .ttb-state-heading {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+}
+
+.ttb-cursor-config .ttb-state-heading h3 {
+    margin: 0;
+    font-size: 18px;
+}
+
+.ttb-cursor-config .ttb-state-chips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.ttb-cursor-config .ttb-state-chip {
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid #bbb;
+    background: #ececec;
+    font-size: 11px;
+    color: #555;
+}
+
+.ttb-cursor-config .ttb-native-preview {
+    margin-top: 8px;
+    padding: 10px 12px;
+    border: 1px dashed #aaa;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.7);
+    font-size: 12px;
+    color: #555;
+    cursor: var(--ttb-demo-cursor, auto);
+}
+
+.ttb-cursor-config .ttb-native-preview:active {
+    cursor: var(--ttb-demo-active-cursor, var(--ttb-demo-cursor, auto));
+}
+
 .ttb-cursor-config .ttb-toggle-label {
     display: flex;
     align-items: center;
@@ -61,7 +113,8 @@
 }
 
 .ttb-cursor-config .ttb-browse-btn,
-.ttb-cursor-config .ttb-aom-btn {
+.ttb-cursor-config .ttb-aom-btn,
+.ttb-cursor-config .ttb-clear-btn {
     flex-shrink: 0;
     width: 32px;
     height: 28px;

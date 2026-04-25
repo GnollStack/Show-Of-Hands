@@ -1,4 +1,4 @@
-import { MODULE_ID, DEFAULT_CURSOR_PATH, DEFAULT_HOTSPOT, CURSOR_STATE_KEYS, CURSOR_STATE_LABELS, NAME_POSITION_PRESETS, debugLog } from './constants.js';
+import { MODULE_ID, DEFAULT_CURSOR_PATH, DEFAULT_HOTSPOT, CURSOR_STATE_KEYS, CURSOR_STATE_DETAILS, NAME_POSITION_PRESETS, debugLog } from './constants.js';
 import { getDefaultCursorStates } from './settings.js';
 import { applyCursorStyles } from './cursor-styles.js';
 import { refreshSharedCursorImage } from './cursor-sharing.js';
@@ -19,7 +19,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
             resizable: false
         },
         position: {
-            width: 560,
+            width: 760,
             height: "auto"
         },
         classes: ["target-the-beastie", "cursor-config"]
@@ -33,12 +33,16 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
 
     async _prepareContext(options) {
         const states = foundry.utils.deepClone(game.settings.get(MODULE_ID, "cursor-states"));
-        const statesArray = CURSOR_STATE_KEYS.map(key => ({
-            key,
-            label: CURSOR_STATE_LABELS[key],
-            isDefault: key === "default",
-            ...states[key]
-        }));
+        const statesArray = CURSOR_STATE_KEYS.map(key => {
+            const details = CURSOR_STATE_DETAILS[key];
+            return {
+                key,
+                isDefault: key === "default",
+                ...details,
+                disabledFallbackLabel: details.disabledFallbackKey ? CURSOR_STATE_DETAILS[details.disabledFallbackKey]?.label ?? "Default" : null,
+                ...states[key]
+            };
+        });
         const namePosition = game.settings.get(MODULE_ID, "cursor-name-position");
         const nameOffset = game.settings.get(MODULE_ID, "cursor-name-offset");
         return {
@@ -82,6 +86,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
             const rotValue = section.querySelector('.ttb-rotation-value');
             const browseBtn = section.querySelector('.ttb-browse-btn');
             const aomBtn = section.querySelector('.ttb-aom-btn');
+            const clearBtn = section.querySelector('.ttb-clear-btn');
             const enableCheckbox = section.querySelector(`input[name="states.${stateKey}.enabled"]`);
             const wInput = section.querySelector(`input[name="states.${stateKey}.width"]`);
             const hInput = section.querySelector(`input[name="states.${stateKey}.height"]`);
@@ -173,13 +178,14 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
             }
 
             const updateImage = (path) => {
-                if (imageInput) imageInput.value = path;
+                const trimmedPath = path?.trim?.() ?? path ?? "";
+                if (imageInput) imageInput.value = trimmedPath;
                 if (previewImg) {
-                    previewImg.src = path || '';
-                    previewImg.style.display = path ? 'block' : 'none';
+                    previewImg.src = trimmedPath || '';
+                    previewImg.style.display = trimmedPath ? 'block' : 'none';
                 }
                 // Validate dimensions
-                if (path) {
+                if (trimmedPath) {
                     const img = new Image();
                     img.onload = () => {
                         if (img.width > 128 || img.height > 128) {
@@ -187,12 +193,15 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
                         }
                     };
                     img.onerror = () => {
-                        debugLog("config", `Failed to load cursor image for validation: ${path}`);
+                        debugLog("config", `Failed to load cursor image for validation: ${trimmedPath}`);
                     };
-                    img.src = path;
+                    img.src = trimmedPath;
                 }
             };
 
+            if (imageInput) {
+                imageInput.addEventListener('change', () => updateImage(imageInput.value));
+            }
             if (xSlider) xSlider.addEventListener('input', updatePreview);
             if (ySlider) ySlider.addEventListener('input', updatePreview);
             if (rotSlider) rotSlider.addEventListener('input', updatePreview);
@@ -221,6 +230,19 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
                     updateImage(DEFAULT_CURSOR_PATH);
                     if (xSlider) { xSlider.value = DEFAULT_HOTSPOT.x; }
                     if (ySlider) { ySlider.value = DEFAULT_HOTSPOT.y; }
+                    if (rotSlider) { rotSlider.value = 0; }
+                    if (wInput) { wInput.value = ''; }
+                    if (hInput) { hInput.value = ''; }
+                    updatePreview();
+                });
+            }
+
+            if (clearBtn) {
+                clearBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    updateImage("");
+                    if (xSlider) { xSlider.value = 0; }
+                    if (ySlider) { ySlider.value = 0; }
                     if (rotSlider) { rotSlider.value = 0; }
                     if (wInput) { wInput.value = ''; }
                     if (hInput) { hInput.value = ''; }

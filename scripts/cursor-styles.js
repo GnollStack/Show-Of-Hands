@@ -10,6 +10,51 @@ export function loadImage(src) {
 }
 
 const MAX_CURSOR_SIZE = 128;
+const POINTER_UI_SELECTOR = [
+    "a",
+    "button",
+    "select",
+    "summary",
+    "[role='button']",
+    "[data-action]",
+    "[data-control]",
+    "[data-tab]",
+    ".control-tool",
+    ".scene-control",
+    ".header-button",
+    ".window-header .header-control",
+    ".window-app .tab",
+    ".window-app .directory-item",
+    ".window-app .item-control",
+    ".window-app .effect-control",
+    ".window-app .rollable"
+].join(", ");
+const DRAG_UI_SELECTOR = [
+    ".window-app li.item",
+    ".window-app .item-name",
+    "[draggable='true']",
+    ".draggable"
+].join(", ");
+const TEXT_UI_SELECTOR = [
+    "input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='button']):not([type='submit']):not([type='reset']):not([type='file']):not([type='color'])",
+    "textarea",
+    "[contenteditable='true']",
+    ".editor-content",
+    ".ProseMirror"
+].join(", ");
+const RESIZE_SELECTOR = [
+    ".application .window-resize-handle",
+    "body.game .app .window-resizable-handle"
+].join(", ");
+
+const ROOT_CURSOR_VARIABLES = [
+    { key: "default", cssVar: "--cursor-default", fallback: "default", disabledFallback: "default" },
+    { key: "hover", cssVar: "--cursor-pointer", fallback: "pointer", disabledFallback: "var(--cursor-default)" },
+    { key: "click", cssVar: "--cursor-pointer-down", fallback: "pointer", disabledFallback: "var(--cursor-pointer)" },
+    { key: "drag", cssVar: "--cursor-grab", fallback: "grab", disabledFallback: "var(--cursor-default)" },
+    { key: "dragging", cssVar: "--cursor-grab-down", fallback: "grabbing", disabledFallback: "var(--cursor-grab)" },
+    { key: "text", cssVar: "--cursor-text", fallback: "text", disabledFallback: "var(--cursor-default)" }
+];
 
 export async function getRotatedCursor(imageSrc, hotspotX, hotspotY, degrees, targetWidth = 0, targetHeight = 0) {
     const hasRotation = degrees && degrees !== 0;
@@ -34,11 +79,8 @@ export async function getRotatedCursor(imageSrc, hotspotX, hotspotY, degrees, ta
         displayW = Math.round(nW * (targetHeight / nH));
     }
 
-    // Hotspot values are in output (display) image coordinate space — no scaling needed.
-    // drawImage handles the resize; the hotspot pixel positions stay as the user set them.
-
+    // Hotspot values are in output (display) image coordinate space; no extra scaling needed.
     if (!hasRotation) {
-        // Resize only — clamp to MAX_CURSOR_SIZE
         const maxDim = Math.max(displayW, displayH);
         const scale = maxDim > MAX_CURSOR_SIZE ? MAX_CURSOR_SIZE / maxDim : 1;
         const finalW = Math.ceil(displayW * scale);
@@ -46,26 +88,23 @@ export async function getRotatedCursor(imageSrc, hotspotX, hotspotY, degrees, ta
         const finalHotspotX = Math.max(0, Math.round(hotspotX * scale));
         const finalHotspotY = Math.max(0, Math.round(hotspotY * scale));
 
-        debugLog("cursor", `getRotatedCursor: resize only → ${finalW}x${finalH}, hotspot=(${finalHotspotX},${finalHotspotY})`);
+        debugLog("cursor", `getRotatedCursor: resize only -> ${finalW}x${finalH}, hotspot=(${finalHotspotX},${finalHotspotY})`);
 
-        const canvas = document.createElement('canvas');
+        const canvas = document.createElement("canvas");
         canvas.width = finalW;
         canvas.height = finalH;
-        canvas.getContext('2d').drawImage(img, 0, 0, finalW, finalH);
+        canvas.getContext("2d").drawImage(img, 0, 0, finalW, finalH);
 
-        return { dataUrl: canvas.toDataURL('image/png'), hotspotX: finalHotspotX, hotspotY: finalHotspotY };
+        return { dataUrl: canvas.toDataURL("image/png"), hotspotX: finalHotspotX, hotspotY: finalHotspotY };
     }
 
-    // Rotation (with optional resize applied via drawImage dimensions)
     const rad = (degrees * Math.PI) / 180;
     const cos = Math.cos(rad);
     const sin = Math.sin(rad);
 
-    // New bounding box after rotating the display-sized image
     let newW = Math.ceil(Math.abs(displayW * cos) + Math.abs(displayH * sin));
     let newH = Math.ceil(Math.abs(displayW * sin) + Math.abs(displayH * cos));
 
-    // Transform hotspot: rotate around display image center, then offset to new canvas center
     const cx = displayW / 2;
     const cy = displayH / 2;
     const dx = hotspotX - cx;
@@ -73,7 +112,6 @@ export async function getRotatedCursor(imageSrc, hotspotX, hotspotY, degrees, ta
     let newHotspotX = newW / 2 + dx * cos - dy * sin;
     let newHotspotY = newH / 2 + dx * sin + dy * cos;
 
-    // Scale down if exceeds MAX_CURSOR_SIZE
     const maxDim = Math.max(newW, newH);
     const scale = maxDim > MAX_CURSOR_SIZE ? MAX_CURSOR_SIZE / maxDim : 1;
 
@@ -85,15 +123,14 @@ export async function getRotatedCursor(imageSrc, hotspotX, hotspotY, degrees, ta
         newH = Math.ceil(newH * scale);
     }
 
-    const canvas = document.createElement('canvas');
+    const canvas = document.createElement("canvas");
     canvas.width = newW;
     canvas.height = newH;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
 
     ctx.translate(newW / 2, newH / 2);
     ctx.scale(scale, scale);
     ctx.rotate(rad);
-    // Draw at display size (handles resize + rotation in one pass)
     ctx.drawImage(img, -displayW / 2, -displayH / 2, displayW, displayH);
 
     const finalHotspotX = Math.max(0, Math.round(newHotspotX));
@@ -102,18 +139,22 @@ export async function getRotatedCursor(imageSrc, hotspotX, hotspotY, degrees, ta
     debugLog("cursor", `getRotatedCursor: final size=${newW}x${newH}, hotspot=(${finalHotspotX},${finalHotspotY})`);
 
     return {
-        dataUrl: canvas.toDataURL('image/png'),
+        dataUrl: canvas.toDataURL("image/png"),
         hotspotX: finalHotspotX,
         hotspotY: finalHotspotY
     };
 }
 
-async function buildCursorCSS(selector, state, important) {
-    const imp = important ? " !important" : "";
+async function buildCursorValue(state, fallback, disabledFallback = fallback) {
+    if (state?.enabled === false) {
+        return disabledFallback;
+    }
+
+    if (!state?.image) {
+        return fallback;
+    }
+
     const rotation = state.rotation || 0;
-
-    debugLog("cursor", `buildCursorCSS: selector="${selector}" image="${state.image}" hotspot=(${state.hotspotX},${state.hotspotY}) rotation=${rotation}`);
-
     const targetWidth = state.width || 0;
     const targetHeight = state.height || 0;
 
@@ -121,26 +162,42 @@ async function buildCursorCSS(selector, state, important) {
         try {
             const processed = await getRotatedCursor(state.image, state.hotspotX, state.hotspotY, rotation, targetWidth, targetHeight);
             if (processed) {
-                debugLog("cursor", `buildCursorCSS: processed image → hotspot=(${processed.hotspotX},${processed.hotspotY}), dataUrl length=${processed.dataUrl.length}`);
-                return `${selector} { cursor: url('${processed.dataUrl}') ${processed.hotspotX} ${processed.hotspotY}, auto${imp}; }`;
+                debugLog("cursor", `buildCursorValue: processed image -> hotspot=(${processed.hotspotX},${processed.hotspotY}), dataUrl length=${processed.dataUrl.length}`);
+                return `url('${processed.dataUrl}') ${processed.hotspotX} ${processed.hotspotY}, ${fallback}`;
             }
         } catch (e) {
             console.warn(`${MODULE_ID} | Failed to process cursor image:`, e);
         }
     }
 
-    // Test if the image actually loads
     try {
         const testImg = await loadImage(state.image);
-        debugLog("cursor", `buildCursorCSS: image loaded OK — ${testImg.width}x${testImg.height}px, src="${state.image}"`);
+        debugLog("cursor", `buildCursorValue: image loaded OK -> ${testImg.width}x${testImg.height}px, src="${state.image}"`);
+        return `url('${state.image}') ${state.hotspotX} ${state.hotspotY}, ${fallback}`;
     } catch (e) {
         console.warn(`${MODULE_ID} | Cursor image FAILED to load: "${state.image}"`, e);
-        debugLog("cursor", `buildCursorCSS: IMAGE LOAD FAILED for "${state.image}" — cursor will fall back to default`);
+        debugLog("cursor", `buildCursorValue: IMAGE LOAD FAILED for "${state.image}" -> falling back to ${fallback}`);
+        return fallback;
+    }
+}
+
+function buildCursorRule(selector, cursorValue, important = false) {
+    return `${selector} { cursor: ${cursorValue}${important ? " !important" : ""}; }`;
+}
+
+function restoreFoundryCursorVariables() {
+    if (typeof game?.configureCursors === "function") {
+        game.configureCursors();
+        debugLog("cursor", "restoreFoundryCursorVariables: reset root cursor vars through game.configureCursors()");
+        return;
     }
 
-    const rule = `${selector} { cursor: url('${state.image}') ${state.hotspotX} ${state.hotspotY}, auto${imp}; }`;
-    debugLog("cursor", `buildCursorCSS: generated rule: ${rule}`);
-    return rule;
+    const rootStyle = document.documentElement?.style;
+    if (!rootStyle) return;
+    for (const key of Object.keys(rootStyle)) {
+        if (key.startsWith("--cursor")) rootStyle.removeProperty(key);
+    }
+    debugLog("cursor", "restoreFoundryCursorVariables: removed root cursor vars as fallback");
 }
 
 export async function applyCursorStyles(isEnabled) {
@@ -152,6 +209,8 @@ export async function applyCursorStyles(isEnabled) {
         existingStyle.remove();
     }
 
+    restoreFoundryCursorVariables();
+
     if (!isEnabled) {
         debugLog("cursor", "Custom cursor disabled.");
         return;
@@ -160,34 +219,46 @@ export async function applyCursorStyles(isEnabled) {
     const states = game.settings.get(MODULE_ID, "cursor-states");
     debugLog("cursor", "applyCursorStyles: loaded cursor-states from settings:", JSON.stringify(states, null, 2));
 
-    const def = states.default;
-
-    if (!def.image) {
-        debugLog("cursor", "applyCursorStyles: default state has no image, aborting");
-        return;
+    const rootStyle = document.documentElement?.style;
+    for (const nativeState of ROOT_CURSOR_VARIABLES) {
+        const value = await buildCursorValue(states[nativeState.key], nativeState.fallback, nativeState.disabledFallback);
+        rootStyle?.setProperty(nativeState.cssVar, value);
+        debugLog("cursor", `applyCursorStyles: set ${nativeState.cssVar} = ${value}`);
     }
+    rootStyle?.setProperty("--cursor-default-down", "var(--cursor-default)");
+    rootStyle?.setProperty("--cursor-text-down", "var(--cursor-text)");
+    debugLog("cursor", "applyCursorStyles: set inline root cursor vars");
 
     const cssParts = [];
-    cssParts.push(await buildCursorCSS("#board", def, true));
-    cssParts.push(await buildCursorCSS("body", def, false));
+    cssParts.push(buildCursorRule("body", "var(--cursor-default)"));
+    cssParts.push(buildCursorRule("#board", "var(--cursor-default)", true));
 
-    if (states.hover?.enabled && states.hover.image) {
-        debugLog("cursor", "applyCursorStyles: hover state is enabled with image:", states.hover.image);
-        cssParts.push(await buildCursorCSS("#board.ttb-cursor-hover, #board.ttb-cursor-hover *, body.ttb-cursor-hover, body.ttb-cursor-hover *", states.hover, true));
+    if (states.drag) {
+        cssParts.push(buildCursorRule(`body :is(${DRAG_UI_SELECTOR})`, "var(--cursor-grab)"));
     }
-    if (states.targeting?.enabled && states.targeting.image) {
-        debugLog("cursor", "applyCursorStyles: targeting state is enabled with image:", states.targeting.image);
-        cssParts.push(await buildCursorCSS("#board.ttb-cursor-targeting, #board.ttb-cursor-targeting *", states.targeting, true));
+
+    if (states.text) {
+        cssParts.push(buildCursorRule(`body :is(${TEXT_UI_SELECTOR})`, "var(--cursor-text)"));
     }
-    if (states.panning?.enabled && states.panning.image) {
-        debugLog("cursor", "applyCursorStyles: panning state is enabled with image:", states.panning.image);
-        cssParts.push(await buildCursorCSS("#board.ttb-cursor-panning, #board.ttb-cursor-panning *", states.panning, true));
+
+    if (states.hover) {
+        cssParts.push(buildCursorRule(`body :is(${POINTER_UI_SELECTOR})`, "var(--cursor-pointer)"));
+        cssParts.push(buildCursorRule("#board.ttb-cursor-hover, #board.ttb-cursor-hover *", "var(--cursor-pointer)", true));
     }
+
+    const resizeValue = await buildCursorValue(states.resize, "nwse-resize", "var(--cursor-default)");
+    cssParts.push(buildCursorRule(RESIZE_SELECTOR, resizeValue));
+
+    const targetingValue = await buildCursorValue(states.targeting, "crosshair", "var(--cursor-default)");
+    cssParts.push(buildCursorRule("#board.ttb-cursor-targeting, #board.ttb-cursor-targeting *", targetingValue, true));
+
+    const panningValue = await buildCursorValue(states.panning, "grabbing", "var(--cursor-default)");
+    cssParts.push(buildCursorRule("#board.ttb-cursor-panning, #board.ttb-cursor-panning *", panningValue, true));
 
     const finalCSS = cssParts.join("\n");
     debugLog("cursor", "applyCursorStyles: final CSS:\n", finalCSS);
 
-    const style = document.createElement('style');
+    const style = document.createElement("style");
     style.id = STYLE_ID;
     style.textContent = finalCSS;
     document.head.appendChild(style);

@@ -20,6 +20,13 @@ import { startCursorSharing, stopCursorSharing, refreshSharedCursorImage } from 
 
 debugLog("cursor", "main.js loaded, all imports resolved OK");
 
+function syncMiddleMouseListener() {
+    const isTargetingEnabled = game.settings.get(MODULE_ID, "use-mousewheel-targeting");
+    const isMarqueeEnabled = game.settings.get(MODULE_ID, "use-marquee-select");
+    const isClearOnEmptyEnabled = game.settings.get(MODULE_ID, "clear-targets-on-empty-click");
+    toggleMarqueeListener(isTargetingEnabled || isMarqueeEnabled || isClearOnEmptyEnabled);
+}
+
 Hooks.once('init', () => {
     debugLog("cursor", "Initializing settings...");
 
@@ -42,7 +49,7 @@ Hooks.once('init', () => {
         config: true,
         type: Boolean,
         default: true,
-        onChange: (value) => toggleMarqueeListener(value)
+        onChange: () => syncMiddleMouseListener()
     });
 
     game.settings.register(MODULE_ID, "use-marquee-select", {
@@ -52,7 +59,17 @@ Hooks.once('init', () => {
         config: true,
         type: Boolean,
         default: true,
-        onChange: () => {}
+        onChange: () => syncMiddleMouseListener()
+    });
+
+    game.settings.register(MODULE_ID, "clear-targets-on-empty-click", {
+        name: "Clear Targets on Empty Middle-Click",
+        hint: "Middle-click on empty canvas (no token under cursor) clears all of your current targets. Hold Shift to keep your targets when clicking empty space.",
+        scope: "client",
+        config: true,
+        type: Boolean,
+        default: true,
+        onChange: () => syncMiddleMouseListener()
     });
 
     game.settings.register(MODULE_ID, "use-custom-cursor", {
@@ -211,7 +228,7 @@ Hooks.once('init', () => {
         scope: "client",
         config: false,
         type: Number,
-        default: 2
+        default: 0
     });
 
     // Settings menu
@@ -236,8 +253,7 @@ Hooks.on('canvasReady', () => {
     updateOverlaySetting("namePosition", game.settings.get(MODULE_ID, "cursor-name-position"));
     updateOverlaySetting("nameOffset", game.settings.get(MODULE_ID, "cursor-name-offset"));
 
-    const isTargetingEnabled = game.settings.get(MODULE_ID, "use-mousewheel-targeting");
-    toggleMarqueeListener(isTargetingEnabled);
+    syncMiddleMouseListener();
 
     const isCursorEnabled = game.settings.get(MODULE_ID, "use-custom-cursor");
     if (isCursorEnabled) {
@@ -257,6 +273,7 @@ Hooks.on('canvasReady', () => {
 
 Hooks.on('canvasTearDown', () => {
     cleanupMarqueeListener();
+    cleanupCursorStateListeners();
     stopCursorSharing();
     destroyCursorOverlay();
 });

@@ -2,7 +2,7 @@
 
 A Foundry VTT module for quick token targeting, custom cursors, and multiplayer cursor sharing.
 
-**Version:** 13.1.0  
+**Version:** 13.2.0  
 **Compatibility:** Foundry VTT v13+ (verified on v13.315)  
 **Author:** GnollStack
 
@@ -14,6 +14,8 @@ Target tokens instantly using the middle mouse button instead of switching to th
 
 - **Middle-click** a token to target it
 - **Shift + Middle-click** to target multiple tokens
+- **Middle-click on empty canvas** clears all of your current targets (toggleable, default on)
+- **Shift + Middle-click on empty canvas** keeps your existing targets (no-op)
 - Works like pressing the `T` key, but without changing tools
 
 ### Marquee Box Select
@@ -34,7 +36,12 @@ Replace the default browser cursor with custom cursor images throughout Foundry 
 | State | When Active |
 |-------|-------------|
 | Default | Normal cursor on the canvas and UI |
-| Hover | Mouse is over a token |
+| Hover | Mouse is over a token or a clickable Foundry UI control |
+| Click | Mouse button is held on clickable controls |
+| Hover To Drag | Mouse is over draggable headers, rows, or drag sources |
+| Dragging | A draggable UI element is actively being dragged |
+| Resize | Mouse is over a window resize handle |
+| Text Editing | Mouse is over a text field or editor |
 | Targeting | Targeting tool is active |
 | Panning | Right-click dragging to pan |
 
@@ -48,6 +55,7 @@ Per-state customization includes:
 - Enable or disable individual non-default states
 - Preview the cursor live with hotspot visualization
 - Fall back to the built-in Age of Myth default cursor
+- Performance-safe UI hover handling that avoids inventory and sheet FPS spikes
 
 ### Multiplayer Cursor Sharing
 
@@ -59,6 +67,7 @@ See other players' cursors on the canvas in real-time. Each shared cursor appear
 - **Zoom-independent sizing** so cursors keep a consistent screen size at any canvas zoom
 - **Shared Cursor Size setting** controls the final on-screen size of remote cursors even when players use different source image sizes
 - **Scene-aware** so only cursors from players on the same scene are shown
+- **Late-start image requests** so cursor images are refreshed when sharing is enabled after other players are already connected
 - **Auto-fade** after `5` seconds of inactivity
 
 ### Shared Cursor Name Labels
@@ -101,6 +110,7 @@ All settings are client-scoped. Each player configures their own preferences und
 |---------|---------|-------------|
 | Use Mousewheel for Targeting | On | Enable middle-mouse targeting. Hold Shift for multi-target. |
 | Use Marquee Box Select | On | Hold middle mouse and drag to select multiple tokens at once. |
+| Clear Targets on Empty Middle-Click | On | Middle-click on empty canvas clears all current targets. Hold Shift to keep them. |
 | Use Custom Cursor | On | Replace the default cursor with custom images. |
 | Cursor Settings (button) | - | Opens the cursor configuration UI for per-state cursor images and shared overlay name placement. |
 | Shared Cursor Size | 16px | Size at which other players' shared cursors appear on your screen. |
@@ -124,11 +134,42 @@ For each cursor state you can:
 4. Rotate the cursor from `0-359` degrees
 5. Resize it with width and height controls
 6. Enable or disable non-default states
-7. In the Default tab, drag the preview label or use the preset buttons to position the module's shared overlay name
+7. Clear a non-default state's image to use Foundry's native cursor for that state
+8. Preview each state's native fallback cursor directly in the config UI
+9. In the Default tab, drag the preview label or use the preset buttons to position the module's shared overlay name
 
 The live preview shows your cursor image with a red dot marking the hotspot position.
 
 The draggable name label in the preview only controls the module's shared overlay name. Foundry's built-in cursor name is configured separately through **Built-In Foundry Cursor Elements**.
+
+## Performance Notes
+
+Earlier versions of the hover system could cause severe FPS drops when sweeping quickly across dense UI, especially actor inventories and item lists.
+
+- **Problem:** the module used a document-wide JavaScript hover detector that reacted to every `mouseover` across the UI and toggled broad hover styling repeatedly.
+- **Symptom:** moving the cursor rapidly across item rows, controls, and nested sheet elements could tank FPS far more than the default Foundry cursor.
+- **Fix:** token hover is now still driven by Foundry's `hoverToken` hook, but common UI cursor states use CSS selectors and Foundry's native cursor families instead of document-wide JS hover listeners.
+- **Important implementation detail:** Foundry writes its `--cursor-*` variables inline on the root element, so the module now restores Foundry's cursor config first and then applies its own cursor-variable overrides inline as well. A stylesheet-only override is not enough.
+
+## Debugging Checks
+
+Set **Debug Mode** in module settings to focus console output:
+
+| Mode | Use For |
+|------|---------|
+| Cursor CSS & Settings | Cursor settings migration, image load checks, generated cursor CSS |
+| State Detection | Token hover, active targeting tool, and panning cursor classes |
+| Cursor Sharing | Socket messages, cursor image broadcasts, cursor image requests |
+| Marquee Box Select | Middle-click targeting, drag threshold, selected token counts |
+
+Useful browser console checks:
+
+```js
+game.settings.get("target-the-beastie", "settings-version")
+game.settings.get("target-the-beastie", "cursor-states")
+game.activeTool
+document.getElementById("board")?.classList.toString()
+```
 
 ## Installation
 
@@ -170,6 +211,7 @@ target-the-beastie/
 
 - Make sure both players have **Share Cursor with Other Players** enabled
 - Verify both players are on the same scene
+- Toggle **Share Cursor with Other Players** off and back on to force a cursor image request from active peers
 - Check the browser console (`F12`) for errors
 - Set Debug Mode to **Cursor Sharing** to see socket messages
 
@@ -178,6 +220,7 @@ target-the-beastie/
 - Ensure the image path is valid and the file exists
 - Keep cursor images at `128x128` or smaller for best browser compatibility
 - Try the built-in default cursor
+- If changing cursor code, remember Foundry stores `--cursor-*` values inline on the root element; overriding them only in a stylesheet can leave the native cursor active
 - Set Debug Mode to **Cursor CSS & Settings** for detailed logging
 
 **Shared cursor name placement not behaving as expected:**
@@ -190,12 +233,14 @@ target-the-beastie/
 
 - Verify **Use Mousewheel for Targeting** is enabled
 - Make sure you're clicking directly on a token
+- If you moved the mouse more than the marquee threshold before release, the click is treated as a drag gesture instead of a single-target click
 - Some mice and trackpads may not have a middle button
 
 **Marquee box select not working:**
 
-- Verify both **Use Mousewheel for Targeting** and **Use Marquee Box Select** are enabled
+- Verify **Use Marquee Box Select** is enabled
 - Make sure you drag at least `10` pixels to trigger the selection rectangle
+- Marquee selection can remain enabled even when **Use Mousewheel for Targeting** is disabled
 - Players can only target tokens visible to them
 - Set Debug Mode to **Marquee Box Select** to see selection details
 
