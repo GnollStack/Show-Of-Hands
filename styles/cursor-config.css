@@ -1,5 +1,59 @@
 .ttb-cursor-config {
     padding: 10px;
+    max-height: calc(100vh - 110px);
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: #8f7f68 rgba(255, 255, 255, 0.08);
+    color: #e8dfd0;
+}
+
+.ttb-cursor-config::-webkit-scrollbar {
+    width: 10px;
+}
+
+.ttb-cursor-config::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+}
+
+.ttb-cursor-config::-webkit-scrollbar-thumb {
+    background: #8f7f68;
+    border: 2px solid rgba(0, 0, 0, 0.45);
+    border-radius: 6px;
+}
+
+.ttb-cursor-config::-webkit-scrollbar-thumb:hover {
+    background: #b09b7b;
+}
+
+.ttb-cursor-config .ttb-player-config {
+    margin-bottom: 14px;
+    padding: 10px 12px;
+    border: 1px solid #c8c8c8;
+    border-radius: 8px;
+    background: #f7f7f7;
+    color: #312b24;
+}
+
+.ttb-cursor-config .ttb-player-config select {
+    width: 100%;
+}
+
+.ttb-cursor-config .ttb-profile-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 10px;
+}
+
+.ttb-cursor-config .ttb-profile-actions select {
+    flex: 1 1 180px;
+}
+
+.ttb-cursor-config .ttb-profile-actions button {
+    flex: 0 0 auto;
 }
 
 .ttb-cursor-config .ttb-tabs {
@@ -49,6 +103,7 @@
     border: 1px solid #c8c8c8;
     border-radius: 8px;
     background: #f7f7f7;
+    color: #312b24;
 }
 
 .ttb-cursor-config .ttb-state-heading {
@@ -62,6 +117,7 @@
 .ttb-cursor-config .ttb-state-heading h3 {
     margin: 0;
     font-size: 18px;
+    color: #312b24;
 }
 
 .ttb-cursor-config .ttb-state-chips {
@@ -134,6 +190,7 @@
     border-radius: 8px;
     border: 2px solid #ccc;
     user-select: none;
+    color: #312b24;
 }
 
 .ttb-cursor-config .ttb-preview-wrapper {
@@ -250,7 +307,7 @@
 .ttb-cursor-config .ttb-preset-label {
     font-size: 11px;
     font-weight: bold;
-    color: #888;
+    color: #5d554c;
 }
 
 .ttb-cursor-config .ttb-name-preset {
@@ -259,6 +316,7 @@
     border: 1px solid #999;
     border-radius: 10px;
     background: #e8e8e8;
+    color: #4c443b;
     cursor: pointer;
     transition: background 0.15s, border-color 0.15s;
 }
@@ -291,5 +349,93 @@
 }
 
 .ttb-cursor-config .ttb-sheet-footer {
+    margin-top: 12px;
+}
+
+.ttb-advanced {
+    padding: 10px;
+    max-height: calc(100vh - 110px);
+    overflow-y: auto;
+    color: #e8dfd0;
+}
+
+.ttb-advanced .ttb-advanced-section {
+    margin-bottom: 14px;
+    padding: 12px;
+    border: 1px solid #c8c8c8;
+    border-radius: 8px;
+    background: #f7f7f7;
+    color: #312b24;
+}
+
+.ttb-advanced h3 {
+    margin: 0 0 10px;
+    font-size: 16px;
+    color: #312b24;
+}
+
+.ttb-advanced .ttb-form-group {
+    margin-bottom: 12px;
+}
+
+.ttb-advanced label {
+    display: block;
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+.ttb-advanced select,
+.ttb-advanced input[type="range"] {
+    width: 100%;
+}
+
+.ttb-advanced .ttb-toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 8px 0;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.ttb-advanced .ttb-toggle-label input {
+    flex: 0 0 auto;
+}
+
+.ttb-advanced .ttb-inline-value {
+    float: right;
+    font-size: 12px;
+    color: #666;
+}
+
+.ttb-advanced .ttb-user-visibility-list {
+    display: grid;
+    gap: 4px;
+}
+
+.ttb-advanced .ttb-notes {
+    font-size: 11px;
+    color: #666;
+    margin: 4px 0;
+    line-height: 1.4;
+}
+
+.ttb-advanced .ttb-diagnostics-actions {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.ttb-advanced .ttb-diagnostics-output {
+    width: 100%;
+    min-height: 180px;
+    resize: vertical;
+    font-family: monospace;
+    font-size: 11px;
+    color: #222;
+    background: #fff;
+}
+
+.ttb-advanced .ttb-sheet-footer {
     margin-top: 12px;
 }

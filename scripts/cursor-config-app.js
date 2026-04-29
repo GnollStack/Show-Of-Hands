@@ -1,5 +1,5 @@
 import { MODULE_ID, DEFAULT_CURSOR_PATH, DEFAULT_HOTSPOT, CURSOR_STATE_KEYS, CURSOR_STATE_DETAILS, NAME_POSITION_PRESETS, debugLog } from './constants.js';
-import { getDefaultCursorStates } from './settings.js';
+import { getDefaultCursorStates, getDefaultUserCursorConfig, getUserCursorConfig, setUserCursorConfig } from './settings.js';
 import { applyCursorStyles } from './cursor-styles.js';
 import { refreshSharedCursorImage } from './cursor-sharing.js';
 
@@ -20,7 +20,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
         },
         position: {
             width: 760,
-            height: "auto"
+            height: 720
         },
         classes: ["target-the-beastie", "cursor-config"]
     };
@@ -31,8 +31,15 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
         }
     };
 
+    constructor(options = {}) {
+        super(options);
+        this.targetUserId = options.targetUserId ?? game.user.id;
+    }
+
     async _prepareContext(options) {
-        const states = foundry.utils.deepClone(game.settings.get(MODULE_ID, "cursor-states"));
+        const targetUser = game.users.get(this.targetUserId) ?? game.user;
+        const config = getUserCursorConfig(targetUser);
+        const states = foundry.utils.deepClone(config.cursorStates);
         const statesArray = CURSOR_STATE_KEYS.map(key => {
             const details = CURSOR_STATE_DETAILS[key];
             return {
@@ -43,13 +50,25 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
                 ...states[key]
             };
         });
-        const namePosition = game.settings.get(MODULE_ID, "cursor-name-position");
-        const nameOffset = game.settings.get(MODULE_ID, "cursor-name-offset");
+        const namePosition = config.namePosition;
+        const nameOffset = config.nameOffset;
         return {
             states: statesArray,
             defaultCursorPath: DEFAULT_CURSOR_PATH,
             cursorImage: states.default?.image || DEFAULT_CURSOR_PATH,
-            playerName: game.user.name,
+            canConfigureUsers: game.user.isGM,
+            users: game.users.map(user => ({
+                id: user.id,
+                name: user.name,
+                selected: user.id === targetUser.id
+            })),
+            copyUsers: game.users.map(user => ({
+                id: user.id,
+                name: user.name
+            })),
+            targetUserId: targetUser.id,
+            playerName: targetUser.name,
+            useCustomCursor: config.useCustomCursor,
             namePosition,
             nameOffsetX: nameOffset?.x ?? 0,
             nameOffsetY: nameOffset?.y ?? 1.2
@@ -59,6 +78,67 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
     _onRender(context, options) {
         super._onRender(context, options);
         const html = this.element;
+
+        const userSelect = html.querySelector('.ttb-user-select');
+        if (userSelect) {
+            userSelect.addEventListener('change', (e) => {
+                e.preventDefault();
+                this.targetUserId = userSelect.value || game.user.id;
+                this.render({ force: true });
+            });
+        }
+
+        const resetProfileBtn = html.querySelector('.ttb-reset-profile-btn');
+        if (resetProfileBtn) {
+            resetProfileBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const targetUser = game.users.get(this.targetUserId) ?? game.user;
+                if (!window.confirm(`Reset ${targetUser.name}'s cursor profile to defaults?`)) return;
+
+                try {
+                    const saved = await setUserCursorConfig(targetUser, getDefaultUserCursorConfig());
+                    if (targetUser.id === game.user.id) {
+                        await applyCursorStyles(saved.useCustomCursor);
+                        refreshSharedCursorImage();
+                    }
+                    ui.notifications.info(`Reset cursor profile for ${targetUser.name}.`);
+                    this.render({ force: true });
+                } catch (err) {
+                    console.warn(`${MODULE_ID} | Failed to reset cursor profile for ${targetUser.name}:`, err);
+                    ui.notifications.error(`Could not reset cursor profile for ${targetUser.name}.`);
+                }
+            });
+        }
+
+        const copyProfileBtn = html.querySelector('.ttb-copy-profile-btn');
+        const copyProfileSelect = html.querySelector('.ttb-copy-profile-select');
+        if (copyProfileBtn && copyProfileSelect) {
+            copyProfileBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const sourceUser = game.users.get(copyProfileSelect.value);
+                const targetUser = game.users.get(this.targetUserId) ?? game.user;
+                if (!sourceUser || !targetUser) return;
+                if (sourceUser.id === targetUser.id) {
+                    ui.notifications.warn("Choose a different player to copy from.");
+                    return;
+                }
+                if (!window.confirm(`Copy ${sourceUser.name}'s cursor profile to ${targetUser.name}?`)) return;
+
+                try {
+                    const sourceConfig = getUserCursorConfig(sourceUser);
+                    const saved = await setUserCursorConfig(targetUser, foundry.utils.deepClone(sourceConfig));
+                    if (targetUser.id === game.user.id) {
+                        await applyCursorStyles(saved.useCustomCursor);
+                        refreshSharedCursorImage();
+                    }
+                    ui.notifications.info(`Copied cursor profile from ${sourceUser.name} to ${targetUser.name}.`);
+                    this.render({ force: true });
+                } catch (err) {
+                    console.warn(`${MODULE_ID} | Failed to copy cursor profile:`, err);
+                    ui.notifications.error("Could not copy that cursor profile.");
+                }
+            });
+        }
 
         // Tab switching
         html.querySelectorAll('.ttb-tab-btn').forEach(btn => {
@@ -441,6 +521,12 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
         const FDE = foundry.applications.ux?.FormDataExtended ?? FormDataExtended;
         const data = new FDE(form).object;
         debugLog("config", "onSubmit: raw FormDataExtended:", JSON.stringify(data, null, 2));
+        const targetUserId = game.user.isGM ? (data.targetUserId || game.user.id) : game.user.id;
+        const targetUser = game.users.get(targetUserId);
+        if (!targetUser) {
+            ui.notifications.error("Could not find that player to save cursor settings.");
+            return;
+        }
         const parseNumber = (value, fallback) => {
             const parsed = Number.parseFloat(value);
             return Number.isFinite(parsed) ? parsed : fallback;
@@ -461,26 +547,31 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
             debugLog("config", `onSubmit: parsed state "${key}":`, JSON.stringify(states[key]));
         });
 
-        debugLog("config", "onSubmit: saving cursor-states:", JSON.stringify(states, null, 2));
-        await game.settings.set(MODULE_ID, "cursor-states", states);
-
-        const saved = game.settings.get(MODULE_ID, "cursor-states");
-        debugLog("config", "onSubmit: verified saved settings:", JSON.stringify(saved, null, 2));
-
-        const isEnabled = game.settings.get(MODULE_ID, "use-custom-cursor");
-        debugLog("config", "onSubmit: use-custom-cursor =", isEnabled);
-        if (isEnabled) {
-            await applyCursorStyles(true);
-        }
-
         // Save name label position
         const namePos = data.namePosition || "bottom-center";
         const nameOffsetX = parseNumber(data.nameOffsetX, 0);
         const nameOffsetY = parseNumber(data.nameOffsetY, 1.2);
-        await game.settings.set(MODULE_ID, "cursor-name-position", namePos);
-        await game.settings.set(MODULE_ID, "cursor-name-offset", { x: nameOffsetX, y: nameOffsetY });
+        const useCustomCursor = !!data.useCustomCursor;
+        let saved;
+        try {
+            saved = await setUserCursorConfig(targetUser, {
+                useCustomCursor,
+                cursorStates: states,
+                namePosition: namePos,
+                nameOffset: { x: nameOffsetX, y: nameOffsetY }
+            });
+        } catch (e) {
+            console.warn(`${MODULE_ID} | Failed to save cursor configuration for ${targetUser.name}:`, e);
+            ui.notifications.error(`Could not save cursor configuration for ${targetUser.name}.`);
+            return;
+        }
+        debugLog("config", `onSubmit: saved cursor config for ${targetUser.name}:`, JSON.stringify(saved, null, 2));
 
-        refreshSharedCursorImage();
-        ui.notifications.info("Cursor configuration saved!");
+        if (targetUser.id === game.user.id) {
+            await applyCursorStyles(saved.useCustomCursor);
+            refreshSharedCursorImage();
+        }
+
+        ui.notifications.info(`Cursor configuration saved for ${targetUser.name}!`);
     }
 }

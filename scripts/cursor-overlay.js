@@ -21,7 +21,11 @@ const _settings = {
 export function updateOverlaySetting(key, value) {
     _settings[key] = value;
     // Invalidate foundry cursor cache when display setting changes
-    if (key === "foundryCursorDisplay") { _lastFoundryNames = null; _lastFoundryDots = null; }
+    if (key === "foundryCursorDisplay") {
+        _lastFoundryNames = null;
+        _lastFoundryDots = null;
+        _lastFoundryCursorChildren = [];
+    }
     // Invalidate name positioning when name-related settings change
     if (key === "namePosition" || key === "nameOffset" || key === "showNames") {
         for (const [, entry] of _cursors) entry.nameDirty = true;
@@ -48,6 +52,7 @@ export function destroyCursorOverlay() {
         canvas.app.ticker.remove(_tickerCallback);
         _tickerCallback = null;
     }
+    _updateFoundryCursors(true, true);
     // Destroy sprite textures before container teardown to prevent cache leaks
     for (const [, entry] of _cursors) {
         if (entry.sprite) {
@@ -63,6 +68,7 @@ export function destroyCursorOverlay() {
     _pendingImages.clear();
     _lastFoundryNames = null;
     _lastFoundryDots = null;
+    _lastFoundryCursorChildren = [];
     debugLog("sharing", "Cursor overlay destroyed");
 }
 
@@ -281,6 +287,7 @@ function _applyCursorImage(entry, imageDataUrl, hotspotX, hotspotY) {
 // Cached values to avoid redundant per-frame work
 let _lastFoundryNames = null;
 let _lastFoundryDots = null;
+let _lastFoundryCursorChildren = [];
 
 function _updateFoundryCursors(showFoundryNames, showFoundryDots) {
     const foundryCursors = canvas.controls?.cursors;
@@ -297,17 +304,36 @@ function _updateFoundryCursors(showFoundryNames, showFoundryDots) {
     }
 }
 
+function _foundryCursorChildrenChanged(children) {
+    if (children.length !== _lastFoundryCursorChildren.length) return true;
+    return children.some((child, i) => child !== _lastFoundryCursorChildren[i]);
+}
+
+function _getEffectiveFoundryCursorDisplay(foundryCursorDisplay, showModuleNames) {
+    if (!showModuleNames) return foundryCursorDisplay;
+    if (foundryCursorDisplay === "both") return "dots-only";
+    if (foundryCursorDisplay === "names-only") return "none";
+    return foundryCursorDisplay;
+}
+
 function _tick() {
     const now = Date.now();
     const zoom = canvas.stage.scale.x || 1;
     const { cursorSize, cursorOpacity, showNames, foundryCursorDisplay, namePosition, nameOffset } = _settings;
+    const effectiveFoundryCursorDisplay = _getEffectiveFoundryCursorDisplay(foundryCursorDisplay, showNames);
 
     // Only update Foundry's native cursor elements when the setting actually changes
-    const showFoundryNames = foundryCursorDisplay === "both" || foundryCursorDisplay === "names-only";
-    const showFoundryDots = foundryCursorDisplay === "both" || foundryCursorDisplay === "dots-only";
-    if (showFoundryNames !== _lastFoundryNames || showFoundryDots !== _lastFoundryDots) {
+    const showFoundryNames = effectiveFoundryCursorDisplay === "both" || effectiveFoundryCursorDisplay === "names-only";
+    const showFoundryDots = effectiveFoundryCursorDisplay === "both" || effectiveFoundryCursorDisplay === "dots-only";
+    const foundryCursorChildren = [...(canvas.controls?.cursors?.children ?? [])];
+    if (
+        showFoundryNames !== _lastFoundryNames ||
+        showFoundryDots !== _lastFoundryDots ||
+        _foundryCursorChildrenChanged(foundryCursorChildren)
+    ) {
         _lastFoundryNames = showFoundryNames;
         _lastFoundryDots = showFoundryDots;
+        _lastFoundryCursorChildren = foundryCursorChildren;
         _updateFoundryCursors(showFoundryNames, showFoundryDots);
     }
 
@@ -399,8 +425,8 @@ function _tick() {
         const { disableCursorFade, idleIdentityFade } = _settings;
         const isFading = !disableCursorFade && elapsed > CURSOR_FADE_TIMEOUT_MS;
         // Determine which idle elements should appear (only the ones normally hidden)
-        const shouldIdleDot = idleIdentityFade && (foundryCursorDisplay === "none" || foundryCursorDisplay === "names-only");
-        const shouldIdleName = idleIdentityFade && (foundryCursorDisplay === "none" || foundryCursorDisplay === "dots-only");
+        const shouldIdleDot = idleIdentityFade && (effectiveFoundryCursorDisplay === "none" || effectiveFoundryCursorDisplay === "names-only");
+        const shouldIdleName = idleIdentityFade && (effectiveFoundryCursorDisplay === "none" || effectiveFoundryCursorDisplay === "dots-only");
         const hasIdleElements = shouldIdleDot || shouldIdleName;
 
         if (isFading) {

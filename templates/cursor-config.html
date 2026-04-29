@@ -1,5 +1,42 @@
 <div class="ttb-cursor-config">
 
+    <div class="ttb-player-config">
+        {{#if canConfigureUsers}}
+        <div class="ttb-form-group">
+            <label for="ttb-target-user">Player</label>
+            <select id="ttb-target-user" class="ttb-user-select" name="targetUserId">
+                {{#each users}}
+                <option value="{{id}}" {{#if selected}}selected{{/if}}>{{name}}</option>
+                {{/each}}
+            </select>
+        </div>
+        {{else}}
+        <input type="hidden" name="targetUserId" value="{{targetUserId}}">
+        {{/if}}
+
+        <label class="ttb-toggle-label">
+            <input type="checkbox" name="useCustomCursor" {{checked useCustomCursor}}>
+            Enable custom cursor for {{playerName}}
+        </label>
+        <p class="ttb-notes">This cursor profile is saved to the Foundry user, so it follows that player instead of this browser.</p>
+
+        <div class="ttb-profile-actions">
+            {{#if canConfigureUsers}}
+            <select class="ttb-copy-profile-select" title="Copy profile from player">
+                {{#each copyUsers}}
+                <option value="{{id}}">{{name}}</option>
+                {{/each}}
+            </select>
+            <button type="button" class="ttb-copy-profile-btn" title="Copy selected player's cursor profile into the currently selected player">
+                <i class="fas fa-copy"></i> Copy Profile
+            </button>
+            {{/if}}
+            <button type="button" class="ttb-reset-profile-btn" title="Reset this cursor profile to defaults">
+                <i class="fas fa-undo"></i> Reset Profile
+            </button>
+        </div>
+    </div>
+
     <nav class="ttb-tabs">
         {{#each states}}
         <button type="button" class="ttb-tab-btn {{#if @first}}active{{/if}}" data-tab="{{key}}">

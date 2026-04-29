@@ -1,4 +1,5 @@
 import { MODULE_ID, STYLE_ID, debugLog } from './constants.js';
+import { getUserCursorConfig } from './settings.js';
 
 export function loadImage(src) {
     return new Promise((resolve, reject) => {
@@ -55,6 +56,8 @@ const ROOT_CURSOR_VARIABLES = [
     { key: "dragging", cssVar: "--cursor-grab-down", fallback: "grabbing", disabledFallback: "var(--cursor-grab)" },
     { key: "text", cssVar: "--cursor-text", fallback: "text", disabledFallback: "var(--cursor-default)" }
 ];
+
+let _applyCursorSerial = 0;
 
 export async function getRotatedCursor(imageSrc, hotspotX, hotspotY, degrees, targetWidth = 0, targetHeight = 0) {
     const hasRotation = degrees && degrees !== 0;
@@ -201,7 +204,10 @@ function restoreFoundryCursorVariables() {
 }
 
 export async function applyCursorStyles(isEnabled) {
-    debugLog("cursor", `applyCursorStyles called, isEnabled=${isEnabled}`);
+    const applyId = ++_applyCursorSerial;
+    const config = getUserCursorConfig(game.user);
+    const enabled = isEnabled ?? config.useCustomCursor;
+    debugLog("cursor", `applyCursorStyles called, isEnabled=${enabled}`);
 
     const existingStyle = document.getElementById(STYLE_ID);
     if (existingStyle) {
@@ -211,23 +217,23 @@ export async function applyCursorStyles(isEnabled) {
 
     restoreFoundryCursorVariables();
 
-    if (!isEnabled) {
+    if (!enabled) {
         debugLog("cursor", "Custom cursor disabled.");
         return;
     }
 
-    const states = game.settings.get(MODULE_ID, "cursor-states");
-    debugLog("cursor", "applyCursorStyles: loaded cursor-states from settings:", JSON.stringify(states, null, 2));
+    const states = config.cursorStates;
+    debugLog("cursor", "applyCursorStyles: loaded user cursor-states:", JSON.stringify(states, null, 2));
 
-    const rootStyle = document.documentElement?.style;
+    const rootCursorValues = [];
     for (const nativeState of ROOT_CURSOR_VARIABLES) {
         const value = await buildCursorValue(states[nativeState.key], nativeState.fallback, nativeState.disabledFallback);
-        rootStyle?.setProperty(nativeState.cssVar, value);
-        debugLog("cursor", `applyCursorStyles: set ${nativeState.cssVar} = ${value}`);
+        if (applyId !== _applyCursorSerial) {
+            debugLog("cursor", "applyCursorStyles: stale async apply cancelled before root vars");
+            return;
+        }
+        rootCursorValues.push({ cssVar: nativeState.cssVar, value });
     }
-    rootStyle?.setProperty("--cursor-default-down", "var(--cursor-default)");
-    rootStyle?.setProperty("--cursor-text-down", "var(--cursor-text)");
-    debugLog("cursor", "applyCursorStyles: set inline root cursor vars");
 
     const cssParts = [];
     cssParts.push(buildCursorRule("body", "var(--cursor-default)"));
@@ -247,16 +253,37 @@ export async function applyCursorStyles(isEnabled) {
     }
 
     const resizeValue = await buildCursorValue(states.resize, "nwse-resize", "var(--cursor-default)");
+    if (applyId !== _applyCursorSerial) {
+        debugLog("cursor", "applyCursorStyles: stale async apply cancelled before resize CSS");
+        return;
+    }
     cssParts.push(buildCursorRule(RESIZE_SELECTOR, resizeValue));
 
     const targetingValue = await buildCursorValue(states.targeting, "crosshair", "var(--cursor-default)");
+    if (applyId !== _applyCursorSerial) {
+        debugLog("cursor", "applyCursorStyles: stale async apply cancelled before targeting CSS");
+        return;
+    }
     cssParts.push(buildCursorRule("#board.ttb-cursor-targeting, #board.ttb-cursor-targeting *", targetingValue, true));
 
     const panningValue = await buildCursorValue(states.panning, "grabbing", "var(--cursor-default)");
+    if (applyId !== _applyCursorSerial) {
+        debugLog("cursor", "applyCursorStyles: stale async apply cancelled before panning CSS");
+        return;
+    }
     cssParts.push(buildCursorRule("#board.ttb-cursor-panning, #board.ttb-cursor-panning *", panningValue, true));
 
     const finalCSS = cssParts.join("\n");
     debugLog("cursor", "applyCursorStyles: final CSS:\n", finalCSS);
+
+    const rootStyle = document.documentElement?.style;
+    for (const { cssVar, value } of rootCursorValues) {
+        rootStyle?.setProperty(cssVar, value);
+        debugLog("cursor", `applyCursorStyles: set ${cssVar} = ${value}`);
+    }
+    rootStyle?.setProperty("--cursor-default-down", "var(--cursor-default)");
+    rootStyle?.setProperty("--cursor-text-down", "var(--cursor-text)");
+    debugLog("cursor", "applyCursorStyles: set inline root cursor vars");
 
     const style = document.createElement("style");
     style.id = STYLE_ID;

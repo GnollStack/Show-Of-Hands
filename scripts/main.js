@@ -10,21 +10,110 @@
  */
 
 import { MODULE_ID, DEBUG_MODES, debugLog } from './constants.js';
-import { getDefaultCursorStates, migrateSettings } from './settings.js';
+import {
+    CURSOR_SHARING_MODES,
+    MARQUEE_TOKEN_FILTERS,
+    MIDDLE_MOUSE_ACTION_MODES,
+    getDefaultCursorStates,
+    getMiddleMouseActionMode,
+    getUserCursorConfig,
+    isCursorBroadcastEnabled,
+    isCursorPrivateMode,
+    migrateSettings,
+    USER_CURSOR_CONFIG_FLAG
+} from './settings.js';
 import { applyCursorStyles } from './cursor-styles.js';
 import { toggleMarqueeListener, cleanupMarqueeListener } from './marquee-select.js';
 import { setupCursorStateListeners, cleanupCursorStateListeners } from './state-detection.js';
 import { CursorConfigApp } from './cursor-config-app.js';
+import { AdvancedSettingsApp } from './advanced-settings-app.js';
 import { initCursorOverlay, destroyCursorOverlay, updateOverlaySetting } from './cursor-overlay.js';
-import { startCursorSharing, stopCursorSharing, refreshSharedCursorImage } from './cursor-sharing.js';
+import { startCursorSharing, stopCursorSharing, refreshSharedCursorImage, setCursorBroadcastEnabled, broadcastHiddenPing, syncHiddenRemoteCursors, getCursorSharingDebugState } from './cursor-sharing.js';
 
 debugLog("cursor", "main.js loaded, all imports resolved OK");
 
+let _originalBroadcastActivity = null;
+
 function syncMiddleMouseListener() {
-    const isTargetingEnabled = game.settings.get(MODULE_ID, "use-mousewheel-targeting");
-    const isMarqueeEnabled = game.settings.get(MODULE_ID, "use-marquee-select");
+    const hasMiddleMouseAction = getMiddleMouseActionMode() !== "off";
     const isClearOnEmptyEnabled = game.settings.get(MODULE_ID, "clear-targets-on-empty-click");
-    toggleMarqueeListener(isTargetingEnabled || isMarqueeEnabled || isClearOnEmptyEnabled);
+    toggleMarqueeListener(hasMiddleMouseAction || isClearOnEmptyEnabled);
+}
+
+function isLocalCursorHidden() {
+    return isCursorPrivateMode();
+}
+
+async function syncLocalCursorProfile() {
+    const config = getUserCursorConfig(game.user);
+    await applyCursorStyles(config.useCustomCursor);
+    if (config.useCustomCursor) setupCursorStateListeners();
+    else cleanupCursorStateListeners();
+    refreshSharedCursorImage();
+}
+
+function installCursorPrivacyPatch() {
+    const proto = game.user?.constructor?.prototype;
+    if (!proto || _originalBroadcastActivity) return;
+
+    _originalBroadcastActivity = proto.broadcastActivity;
+    proto.broadcastActivity = function(activityData = {}, options = {}) {
+        if (this.isSelf && isCursorPrivateMode()) {
+            const hasCursor = Object.prototype.hasOwnProperty.call(activityData, "cursor");
+            const isPing = Object.prototype.hasOwnProperty.call(activityData, "ping");
+            if (hasCursor && this.isGM && isPing) {
+                broadcastHiddenPing(activityData.cursor, activityData.ping);
+                return;
+            }
+            if (hasCursor) {
+                const filtered = { ...activityData };
+                delete filtered.cursor;
+                if (!Object.keys(filtered).length) return;
+                return _originalBroadcastActivity.call(this, filtered, options);
+            }
+        }
+
+        return _originalBroadcastActivity.call(this, activityData, options);
+    };
+}
+
+function syncCursorPrivacy() {
+    const hidden = isLocalCursorHidden();
+    setCursorBroadcastEnabled(isCursorBroadcastEnabled());
+    if (hidden) {
+        _originalBroadcastActivity?.call(game.user, { cursor: null }, { volatile: false });
+    }
+}
+
+function getDebugState() {
+    return {
+        moduleVersion: game.modules.get(MODULE_ID)?.version ?? game.modules.get(MODULE_ID)?.data?.version ?? "unknown",
+        foundryVersion: game.version ?? "unknown",
+        canvasReady: !!canvas?.ready,
+        sceneId: canvas?.scene?.id ?? null,
+        userId: game.user?.id ?? null,
+        userName: game.user?.name ?? null,
+        middleMouseMode: getMiddleMouseActionMode(),
+        clearTargetsOnEmptyClick: game.settings.get(MODULE_ID, "clear-targets-on-empty-click"),
+        cursorSharingMode: game.settings.get(MODULE_ID, "cursor-sharing-mode"),
+        cursorBroadcastEnabled: isCursorBroadcastEnabled(),
+        cursorPrivateMode: isCursorPrivateMode(),
+        marqueeTokenFilter: game.settings.get(MODULE_ID, "marquee-token-filter"),
+        hiddenSharedCursorUsers: game.settings.get(MODULE_ID, "hidden-shared-cursor-users"),
+        cursorSharing: getCursorSharingDebugState(),
+        userCursorConfig: getUserCursorConfig(game.user)
+    };
+}
+
+function installApi() {
+    const api = {
+        getDebugState,
+        refreshSharedCursorImage,
+        syncHiddenRemoteCursors
+    };
+    const module = game.modules.get(MODULE_ID);
+    if (module) module.api = api;
+    globalThis.TargetTheBeastie = api;
 }
 
 Hooks.once('init', () => {
@@ -41,24 +130,29 @@ Hooks.once('init', () => {
         scope: "client", config: false, type: Number, default: 4
     });
 
-    // --- New settings ---
     game.settings.register(MODULE_ID, "use-mousewheel-targeting", {
-        name: "Use Mousewheel for Targeting",
-        hint: "Enable or disable targeting using the middle mouse button (mousewheel) over a token. Hold Shift to multi-target.",
         scope: "client",
-        config: true,
+        config: false,
         type: Boolean,
-        default: true,
-        onChange: () => syncMiddleMouseListener()
+        default: true
     });
 
     game.settings.register(MODULE_ID, "use-marquee-select", {
-        name: "Use Marquee Box Select",
-        hint: "Hold middle mouse button and drag to draw a selection rectangle. All tokens within the rectangle will be targeted on release.",
+        scope: "client",
+        config: false,
+        type: Boolean,
+        default: true
+    });
+
+    // --- New settings ---
+    game.settings.register(MODULE_ID, "middle-mouse-actions", {
+        name: "Middle-Mouse Actions",
+        hint: "Choose what the middle mouse button does on the canvas. Shift still adds to existing targets.",
         scope: "client",
         config: true,
-        type: Boolean,
-        default: true,
+        type: String,
+        default: "both",
+        choices: MIDDLE_MOUSE_ACTION_MODES,
         onChange: () => syncMiddleMouseListener()
     });
 
@@ -74,17 +168,11 @@ Hooks.once('init', () => {
 
     game.settings.register(MODULE_ID, "use-custom-cursor", {
         name: "Use Custom Cursor",
-        hint: "Replace the default cursor with a custom cursor throughout Foundry VTT. Configure cursor images and states in the menu below.",
+        hint: "Legacy local toggle. Use Cursor Settings to configure the per-player cursor profile.",
         scope: "client",
-        config: true,
+        config: false,
         type: Boolean,
-        default: true,
-        onChange: (value) => {
-            applyCursorStyles(value);
-            if (value) setupCursorStateListeners();
-            else cleanupCursorStateListeners();
-            refreshSharedCursorImage();
-        }
+        default: true
     });
 
     game.settings.register(MODULE_ID, "cursor-states", {
@@ -92,6 +180,14 @@ Hooks.once('init', () => {
         config: false,
         type: Object,
         default: getDefaultCursorStates()
+    });
+
+    game.settings.register(MODULE_ID, "marquee-token-filter", {
+        scope: "client",
+        config: false,
+        type: String,
+        default: "all",
+        choices: MARQUEE_TOKEN_FILTERS
     });
 
     game.settings.register(MODULE_ID, "shared-cursor-size", {
@@ -113,7 +209,7 @@ Hooks.once('init', () => {
         name: "Shared Cursor Opacity",
         hint: "The opacity of other players' cursors. Foundry's default color dot uses 0.35.",
         scope: "client",
-        config: true,
+        config: false,
         type: Number,
         default: 1,
         range: {
@@ -126,7 +222,7 @@ Hooks.once('init', () => {
 
     game.settings.register(MODULE_ID, "show-cursor-names", {
         name: "Show Shared Cursor Names (Overlay)",
-        hint: "Display the module's shared-cursor name label next to remote cursors. This is the movable overlay label, not Foundry's built-in cursor name. To avoid duplicate names, set Built-In Foundry Cursor Elements to Dots Only or None.",
+        hint: "Display the module's movable shared-cursor name label next to remote cursors. When enabled, Foundry's default white cursor name is automatically hidden to avoid duplicate names.",
         scope: "client",
         config: true,
         type: Boolean,
@@ -136,9 +232,9 @@ Hooks.once('init', () => {
 
     game.settings.register(MODULE_ID, "cursor-name-position", {
         name: "Shared Cursor Name Position",
-        hint: "Choose where the module overlay name appears relative to the shared cursor. Applies only when 'Show Shared Cursor Names (Overlay)' is enabled. Set to 'Custom' to use the dragged position from Cursor Settings.",
+        hint: "Legacy local fallback. Use Cursor Settings to configure the per-player overlay name position.",
         scope: "client",
-        config: true,
+        config: false,
         type: String,
         default: "bottom-center",
         choices: {
@@ -167,7 +263,7 @@ Hooks.once('init', () => {
 
     game.settings.register(MODULE_ID, "foundry-cursor-display", {
         name: "Built-In Foundry Cursor Elements",
-        hint: "Control Foundry's own cursor name and color dot separately from the module overlay. Use Dots Only or None if you only want the movable shared overlay name.",
+        hint: "Control Foundry's own cursor name and color dot. If module overlay names are enabled, Foundry's default white name is suppressed automatically and this setting applies to the remaining native elements.",
         scope: "client",
         config: true,
         type: String,
@@ -185,7 +281,7 @@ Hooks.once('init', () => {
         name: "Disable Cursor Fade Out",
         hint: "When enabled, the shared cursor and player name will remain visible at full opacity instead of fading out after the player goes idle.",
         scope: "client",
-        config: true,
+        config: false,
         type: Boolean,
         default: false,
         onChange: (v) => updateOverlaySetting("disableCursorFade", v)
@@ -195,7 +291,7 @@ Hooks.once('init', () => {
         name: "Show Identity on Idle",
         hint: "When a player's cursor goes idle, fade in the hidden Foundry elements (name/dot) so you can still see who was there. Only applies when some Foundry elements are hidden above.",
         scope: "client",
-        config: true,
+        config: false,
         type: Boolean,
         default: false,
         onChange: (v) => updateOverlaySetting("idleIdentityFade", v)
@@ -203,15 +299,42 @@ Hooks.once('init', () => {
 
     game.settings.register(MODULE_ID, "enable-cursor-sharing", {
         name: "Share Cursor with Other Players",
-        hint: "Show your cursor position to other connected players and see theirs on the canvas.",
+        hint: "Send your cursor position and cursor image to other connected players. Turning this off does not hide other players' shared cursors on your screen.",
         scope: "client",
-        config: true,
+        config: false,
         type: Boolean,
         default: true,
-        onChange: (value) => {
-            if (value) { initCursorOverlay(); startCursorSharing(); }
-            else { stopCursorSharing(); destroyCursorOverlay(); }
+    });
+
+    game.settings.register(MODULE_ID, "hide-my-cursor-from-others", {
+        name: "Hide My Cursor From Others",
+        hint: "Privacy mode. Hide your cursor from other players regardless of their viewer settings, including this module's shared cursor and Foundry's built-in cursor dot/name. GM pings are sent through this module so they do not reveal your cursor.",
+        scope: "client",
+        config: false,
+        type: Boolean,
+        default: false
+    });
+
+    game.settings.register(MODULE_ID, "cursor-sharing-mode", {
+        name: "Cursor Sharing Mode",
+        hint: "Choose whether to share your module cursor, only receive other module cursors, or hide your cursor from everyone including Foundry's built-in cursor display.",
+        scope: "client",
+        config: true,
+        type: String,
+        default: "share",
+        choices: CURSOR_SHARING_MODES,
+        onChange: () => {
+            if (canvas?.ready) initCursorOverlay();
+            syncCursorPrivacy();
         }
+    });
+
+    game.settings.register(MODULE_ID, "hidden-shared-cursor-users", {
+        scope: "client",
+        config: false,
+        type: Object,
+        default: {},
+        onChange: () => syncHiddenRemoteCursors()
     });
 
     game.settings.register(MODULE_ID, "debug-mode", {
@@ -240,6 +363,15 @@ Hooks.once('init', () => {
         type: CursorConfigApp,
         restricted: false
     });
+
+    game.settings.registerMenu(MODULE_ID, "advanced-settings-menu", {
+        name: "Advanced Settings & Diagnostics",
+        label: "Advanced Settings",
+        hint: "Tune advanced cursor behavior, marquee filters, per-player cursor visibility, and view diagnostics.",
+        icon: "fas fa-sliders",
+        type: AdvancedSettingsApp,
+        restricted: false
+    });
 });
 
 Hooks.on('canvasReady', () => {
@@ -255,18 +387,17 @@ Hooks.on('canvasReady', () => {
 
     syncMiddleMouseListener();
 
-    const isCursorEnabled = game.settings.get(MODULE_ID, "use-custom-cursor");
-    if (isCursorEnabled) {
+    const cursorConfig = getUserCursorConfig(game.user);
+    if (cursorConfig.useCustomCursor) {
         setupCursorStateListeners();
     }
 
-    const isSharingEnabled = game.settings.get(MODULE_ID, "enable-cursor-sharing");
-    debugLog("sharing", "canvasReady: enable-cursor-sharing =", isSharingEnabled);
-    if (isSharingEnabled) {
-        debugLog("sharing", "canvasReady: calling initCursorOverlay + startCursorSharing");
-        initCursorOverlay();
-        startCursorSharing();
-    }
+    const isSharingEnabled = isCursorBroadcastEnabled();
+    debugLog("sharing", "canvasReady: cursor-sharing-mode =", game.settings.get(MODULE_ID, "cursor-sharing-mode"));
+    debugLog("sharing", "canvasReady: calling initCursorOverlay + startCursorSharing");
+    initCursorOverlay();
+    startCursorSharing(isSharingEnabled && !isLocalCursorHidden());
+    syncCursorPrivacy();
 
     debugLog("cursor", "Module loaded successfully.");
 });
@@ -280,14 +411,23 @@ Hooks.on('canvasTearDown', () => {
 
 Hooks.on('updateUser', (user, change) => {
     if (user.id !== game.user.id) return;
-    if (!Object.prototype.hasOwnProperty.call(change, "name")) return;
-    refreshSharedCursorImage();
+    const cursorConfigChanged = Object.prototype.hasOwnProperty.call(change.flags?.[MODULE_ID] ?? {}, USER_CURSOR_CONFIG_FLAG);
+    const nameChanged = Object.prototype.hasOwnProperty.call(change, "name");
+    if (cursorConfigChanged) syncLocalCursorProfile().catch(e => console.warn(`${MODULE_ID} | Failed to sync cursor profile after user update:`, e));
+    else if (nameChanged) refreshSharedCursorImage();
+});
+
+Hooks.on('userConnected', (user, connected) => {
+    if (!connected || user.id === game.user.id || !isLocalCursorHidden()) return;
+    _originalBroadcastActivity?.call(game.user, { cursor: null }, { volatile: false });
 });
 
 Hooks.once('ready', async () => {
     await migrateSettings();
-    const isCursorEnabled = game.settings.get(MODULE_ID, "use-custom-cursor");
-    debugLog("cursor", "ready hook: use-custom-cursor =", isCursorEnabled);
-    debugLog("cursor", "ready hook: current cursor-states =", JSON.stringify(game.settings.get(MODULE_ID, "cursor-states"), null, 2));
-    await applyCursorStyles(isCursorEnabled);
+    installCursorPrivacyPatch();
+    installApi();
+    syncCursorPrivacy();
+    const cursorConfig = getUserCursorConfig(game.user);
+    debugLog("cursor", "ready hook: user cursor profile =", JSON.stringify(cursorConfig, null, 2));
+    await applyCursorStyles(cursorConfig.useCustomCursor);
 });

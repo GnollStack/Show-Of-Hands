@@ -2,7 +2,7 @@
 
 A Foundry VTT module for quick token targeting, custom cursors, and multiplayer cursor sharing.
 
-**Version:** 13.2.0  
+**Version:** 13.3.0  
 **Compatibility:** Foundry VTT v13+ (verified on v13.315)  
 **Author:** GnollStack
 
@@ -25,6 +25,7 @@ Hold the middle mouse button and drag to draw a selection rectangle on the canva
 - **Middle-click + drag** to draw a selection box
 - **Shift + drag** to add to your existing targets instead of replacing them
 - **Drag over empty space** without Shift to clear all targets
+- **Advanced token filters** can limit marquee targeting to hostile, neutral, friendly, or non-friendly tokens
 - **GM/co-GM** can target all tokens, including hidden ones
 - **Players** can only target tokens visible to them
 - Can be toggled independently from single-click targeting in module settings
@@ -68,6 +69,8 @@ See other players' cursors on the canvas in real-time. Each shared cursor appear
 - **Shared Cursor Size setting** controls the final on-screen size of remote cursors even when players use different source image sizes
 - **Scene-aware** so only cursors from players on the same scene are shown
 - **Late-start image requests** so cursor images are refreshed when sharing is enabled after other players are already connected
+- **Cursor Sharing Mode** can share your cursor, receive only, or fully hide your cursor from others
+- **Per-player visibility controls** let you hide specific shared cursors locally
 - **Auto-fade** after `5` seconds of inactivity
 
 ### Shared Cursor Name Labels
@@ -91,9 +94,11 @@ Control Foundry's built-in cursor elements, the colored dot and player name, ind
 
 This makes it easy to show only the module's movable overlay name without also showing Foundry's built-in name.
 
+When **Show Shared Cursor Names (Overlay)** is enabled, the module automatically hides Foundry's default white cursor name while preserving the native color dot when applicable. This prevents duplicate name labels.
+
 ### Idle Identity Fade-In
 
-When **Show Identity on Idle** is enabled and some Foundry elements are hidden, the hidden elements fade in as a player's cursor fades out after going idle.
+When the hidden advanced **Show Identity on Idle** setting is enabled and some Foundry elements are hidden, the hidden elements fade in as a player's cursor fades out after going idle.
 
 | Foundry Elements Setting | What Fades In on Idle |
 |--------------------------|-----------------------|
@@ -104,27 +109,24 @@ When **Show Identity on Idle** is enabled and some Foundry elements are hidden, 
 
 ## Settings
 
-All settings are client-scoped. Each player configures their own preferences under **Module Settings > Target The Beastie!**
+Cursor appearance is saved per Foundry user, so it follows the player instead of the browser. GMs can open **Cursor Settings** and choose a player to edit that player's cursor profile. The remaining module settings are client-scoped viewer preferences or local feature toggles under **Module Settings > Target The Beastie!**
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Use Mousewheel for Targeting | On | Enable middle-mouse targeting. Hold Shift for multi-target. |
-| Use Marquee Box Select | On | Hold middle mouse and drag to select multiple tokens at once. |
+| Middle-Mouse Actions | Click + Drag | Choose Off, Click to Target, Drag Marquee, or Click + Drag. Hold Shift to add to existing targets. |
 | Clear Targets on Empty Middle-Click | On | Middle-click on empty canvas clears all current targets. Hold Shift to keep them. |
-| Use Custom Cursor | On | Replace the default cursor with custom images. |
-| Cursor Settings (button) | - | Opens the cursor configuration UI for per-state cursor images and shared overlay name placement. |
+| Cursor Settings (button) | - | Opens the per-player cursor configuration UI for custom cursor enablement, per-state cursor images, and shared overlay name placement. |
 | Shared Cursor Size | 16px | Size at which other players' shared cursors appear on your screen. |
-| Shared Cursor Opacity | 1.0 | Opacity of other players' shared cursors on your screen. |
-| Show Shared Cursor Names (Overlay) | Off | Display the module's movable overlay name next to remote shared cursors. |
-| Shared Cursor Name Position | Bottom Center | Position of the module overlay name relative to the shared cursor. Options: Bottom Center, Bottom Right, Top Center, Right, Custom. |
-| Built-In Foundry Cursor Elements | Show Both | Choose which of Foundry's built-in cursor elements remain visible. |
-| Show Identity on Idle | Off | Fade in hidden Foundry cursor elements when a cursor goes idle. |
-| Share Cursor with Other Players | On | Enable sending and receiving shared cursor positions. |
+| Show Shared Cursor Names (Overlay) | Off | Display the module's movable overlay name next to remote shared cursors. Foundry's default white name is hidden automatically while this is on. |
+| Built-In Foundry Cursor Elements | Show Both | Choose which of Foundry's built-in cursor elements remain visible when module overlay names are off, or which native dot/name elements are available for idle identity behavior. |
+| Cursor Sharing Mode | Share My Cursor | Share your module cursor, receive only, or use Private mode to hide your cursor from others, including Foundry's built-in cursor dot/name. |
 | Debug Mode | Off | Enable console logging for troubleshooting. |
 
 ## Cursor Configuration
 
 Click **Cursor Settings** in the module settings to open the configuration UI.
+
+If you are a GM, choose the player at the top of the window before saving. Connected players automatically apply GM changes to their own cursor profile.
 
 For each cursor state you can:
 
@@ -137,10 +139,27 @@ For each cursor state you can:
 7. Clear a non-default state's image to use Foundry's native cursor for that state
 8. Preview each state's native fallback cursor directly in the config UI
 9. In the Default tab, drag the preview label or use the preset buttons to position the module's shared overlay name
+10. Reset a profile to defaults or copy a profile from another player
 
 The live preview shows your cursor image with a red dot marking the hotspot position.
 
 The draggable name label in the preview only controls the module's shared overlay name. Foundry's built-in cursor name is configured separately through **Built-In Foundry Cursor Elements**.
+
+## Advanced Settings
+
+Open **Advanced Settings** from the module settings to tune less-common behavior without crowding the main Foundry settings list.
+
+- Adjust shared cursor opacity and fade behavior
+- Filter marquee targeting by token disposition
+- Hide specific players' shared cursors on your own client
+- View and copy diagnostics for troubleshooting
+
+The module also exposes diagnostics in the console:
+
+```js
+game.modules.get("target-the-beastie").api.getDebugState()
+TargetTheBeastie.getDebugState()
+```
 
 ## Performance Notes
 
@@ -166,7 +185,9 @@ Useful browser console checks:
 
 ```js
 game.settings.get("target-the-beastie", "settings-version")
-game.settings.get("target-the-beastie", "cursor-states")
+game.settings.get("target-the-beastie", "middle-mouse-actions")
+game.settings.get("target-the-beastie", "cursor-sharing-mode")
+game.user.getFlag("target-the-beastie", "cursorConfig")
 game.activeTool
 document.getElementById("board")?.classList.toString()
 ```
@@ -194,6 +215,7 @@ target-the-beastie/
     main.js                Entry point - hooks and settings registration
     constants.js           Module constants and debug utility
     settings.js            Default cursor states and settings migration
+    advanced-settings-app.js Advanced settings and diagnostics UI
     cursor-styles.js       CSS generation and image processing (rotation/resize)
     cursor-config-app.js   Configuration UI (ApplicationV2 + Handlebars mixin)
     state-detection.js     Detects hover/targeting/panning states
@@ -203,15 +225,17 @@ target-the-beastie/
     cursor-sharing.js      Socket communication for cursor position and image sharing
   templates/
     cursor-config.html     Handlebars template for the configuration UI
+    advanced-settings.html Handlebars template for advanced settings
 ```
 
 ## Troubleshooting
 
 **Cursors not appearing for other players:**
 
-- Make sure both players have **Share Cursor with Other Players** enabled
+- Make sure the player whose cursor is missing has **Cursor Sharing Mode** set to **Share My Cursor**
+- Make sure that player is not using **Private** mode
 - Verify both players are on the same scene
-- Toggle **Share Cursor with Other Players** off and back on to force a cursor image request from active peers
+- Switch **Cursor Sharing Mode** back to **Share My Cursor** to rebroadcast that player's cursor image
 - Check the browser console (`F12`) for errors
 - Set Debug Mode to **Cursor Sharing** to see socket messages
 
@@ -226,31 +250,32 @@ target-the-beastie/
 **Shared cursor name placement not behaving as expected:**
 
 - Enable **Show Shared Cursor Names (Overlay)** to see the module's movable label
-- Set **Built-In Foundry Cursor Elements** to **Show Only Color Dots** or **Hide Both** if Foundry's own name label is getting in the way
+- Foundry's default white cursor name is hidden automatically while the module overlay name is enabled
 - Use the Default tab in **Cursor Settings** to drag the overlay name label or choose a preset position
 
 **Middle-mouse targeting not working:**
 
-- Verify **Use Mousewheel for Targeting** is enabled
+- Verify **Middle-Mouse Actions** is set to **Click to Target** or **Click + Drag**
 - Make sure you're clicking directly on a token
 - If you moved the mouse more than the marquee threshold before release, the click is treated as a drag gesture instead of a single-target click
 - Some mice and trackpads may not have a middle button
 
 **Marquee box select not working:**
 
-- Verify **Use Marquee Box Select** is enabled
+- Verify **Middle-Mouse Actions** is set to **Drag Marquee** or **Click + Drag**
 - Make sure you drag at least `10` pixels to trigger the selection rectangle
-- Marquee selection can remain enabled even when **Use Mousewheel for Targeting** is disabled
+- Marquee selection can remain enabled even when middle-click targeting is disabled
+- Check **Advanced Settings > Marquee Targeting** if a token disposition filter is active
 - Players can only target tokens visible to them
 - Set Debug Mode to **Marquee Box Select** to see selection details
 
 ---
 
-## ⚖️ License & Permissions
+## License & Permissions
 
 ### Proprietary EULA
 This module is licensed under the **GnollStack Proprietary EULA**.
-It is **free for personal use** — you can use it in your home games, stream it, or modify it for your own table without restriction.
+It is **free for personal use** - you can use it in your home games, stream it, or modify it for your own table without restriction.
 
 **Commercial redistribution is strictly prohibited.**
 You may not sell this module, bundle it within paid content (such as Patreon maps or adventures), or host it as a commercial service without prior written consent.

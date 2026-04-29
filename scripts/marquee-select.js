@@ -4,6 +4,7 @@ import {
     MARQUEE_LINE_COLOR, MARQUEE_LINE_ALPHA, MARQUEE_LINE_WIDTH
 } from './constants.js';
 import { performSingleTarget } from './targeting.js';
+import { isMiddleMouseMarqueeEnabled, tokenMatchesMarqueeFilter } from './settings.js';
 
 let _startX = 0;
 let _startY = 0;
@@ -93,8 +94,7 @@ function _handlePointerMove(event) {
         _movedBeyondThreshold = true;
 
         // Check if marquee select is enabled before starting drag
-        const marqueeEnabled = game.settings.get(MODULE_ID, "use-marquee-select");
-        if (!marqueeEnabled) return;
+        if (!isMiddleMouseMarqueeEnabled()) return;
 
         _isDragging = true;
         debugLog("marquee", "Drag started, screen threshold exceeded");
@@ -123,7 +123,7 @@ function _handlePointerUp(event) {
         _targetTokens(tokens, isShift);
     } else if (!_movedBeyondThreshold) {
         // No drag — single-click path. performSingleTarget self-gates on
-        // `use-mousewheel-targeting` (on-token branch) and on
+        // `middle-mouse-actions` (on-token branch) and on
         // `clear-targets-on-empty-click` (empty-canvas branch).
         performSingleTarget(isShift);
     }
@@ -167,6 +167,7 @@ function _getTokensInRect(rect) {
     return canvas.tokens.placeables.filter(token => {
         // Permission check: players can only target visible tokens
         if (!isGM && !token.visible) return false;
+        if (!tokenMatchesMarqueeFilter(token)) return false;
 
         // AABB intersection test
         const bounds = token.bounds;

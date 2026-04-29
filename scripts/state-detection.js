@@ -1,4 +1,5 @@
-import { MODULE_ID, debugLog } from './constants.js';
+import { debugLog } from './constants.js';
+import { getUserCursorConfig } from './settings.js';
 
 let _stateListenersActive = false;
 let _panningHandler = null;
@@ -15,7 +16,7 @@ function _logCursorState() {
     else if (boardClasses?.contains("ttb-cursor-hover")) activeState = "hover";
 
     try {
-        const states = game.settings.get(MODULE_ID, "cursor-states");
+        const states = getUserCursorConfig(game.user).cursorStates;
         const stateConfig = states[activeState];
         const cursor = stateConfig?.enabled !== false ? (stateConfig?.image || "none") : `${activeState} disabled -> default: ${states.default?.image || "none"}`;
         debugLog("states", `[CURSOR STATE] active="${activeState}" | cursor="${cursor}"`);

@@ -1,10 +1,12 @@
 import { MODULE_ID, SOCKET_EVENT, CURSOR_SHARE_THROTTLE_MS, debugLog } from './constants.js';
 import { updateRemoteCursor, updateRemoteCursorImage, removeRemoteCursor } from './cursor-overlay.js';
 import { loadImage, getRotatedCursor } from './cursor-styles.js';
+import { getHiddenSharedCursorUserIds, getUserCursorConfig, isSharedCursorUserVisible } from './settings.js';
 
 // foundry deafult C:\Program Files\Foundry Virtual Tabletop\resources\app\client\canvas\containers\elements\cursor.mjs
 
 let _active = false;
+let _broadcastEnabled = true;
 let _registered = false;
 let _lastBroadcast = 0;
 let _userConnectedHookId = null;
@@ -14,9 +16,13 @@ let _cachedHotspotY = 0;
 let _broadcastInFlight = false;
 let _broadcastQueued = false;
 
-export function startCursorSharing() {
-    debugLog("sharing", `startCursorSharing called, _active=${_active}, _registered=${_registered}`);
-    if (_active) return;
+export function startCursorSharing(broadcastEnabled = true) {
+    debugLog("sharing", `startCursorSharing called, _active=${_active}, _registered=${_registered}, broadcastEnabled=${broadcastEnabled}`);
+    _broadcastEnabled = broadcastEnabled;
+    if (_active) {
+        setCursorBroadcastEnabled(_broadcastEnabled);
+        return;
+    }
     _active = true;
 
     // Listen for our module's socket messages (cursor images + position)
@@ -35,16 +41,48 @@ export function startCursorSharing() {
 
     _userConnectedHookId = Hooks.on("userConnected", _onUserConnected);
 
-    // Build and broadcast our custom cursor image
-    _broadcastCursorImage();
+    // Build and broadcast our custom cursor image only when local sharing is enabled.
+    if (_broadcastEnabled) _broadcastCursorImage();
     _requestCursorImages();
 
     debugLog("sharing", "Cursor sharing started successfully");
 }
 
+export function setCursorBroadcastEnabled(enabled) {
+    _broadcastEnabled = enabled;
+    if (!_active) {
+        if (!enabled) _emitCursorHidden();
+        return;
+    }
+
+    if (enabled) {
+        _broadcastCursorImage();
+        _requestCursorImages();
+    } else {
+        _cachedCursorDataUrl = null;
+        _cachedHotspotX = 0;
+        _cachedHotspotY = 0;
+        _emitCursorHidden();
+    }
+
+    debugLog("sharing", `Cursor broadcast ${enabled ? "enabled" : "disabled"}`);
+}
+
+export function broadcastHiddenPing(position, pingData) {
+    game.socket.emit(SOCKET_EVENT, {
+        type: "hiddenPing",
+        userId: game.user.id,
+        sceneId: canvas.scene?.id,
+        position,
+        ping: pingData
+    });
+    debugLog("sharing", `Broadcast hidden ping at (${position?.x?.toFixed?.(1) ?? "?"}, ${position?.y?.toFixed?.(1) ?? "?"})`);
+}
+
 export function stopCursorSharing() {
     if (!_active) return;
     _active = false;
+    _broadcastEnabled = false;
 
     game.socket.off(SOCKET_EVENT, _onSocketMessage);
 
@@ -60,11 +98,32 @@ export function stopCursorSharing() {
     debugLog("sharing", "Cursor sharing stopped");
 }
 
+export function syncHiddenRemoteCursors() {
+    for (const userId of getHiddenSharedCursorUserIds()) {
+        removeRemoteCursor(userId);
+    }
+    if (_active) _requestCursorImages();
+}
+
+export function getCursorSharingDebugState() {
+    return {
+        active: _active,
+        broadcastEnabled: _broadcastEnabled,
+        registeredMouseHandler: _registered,
+        hasCachedCursorImage: !!_cachedCursorDataUrl,
+        cachedHotspotX: _cachedHotspotX,
+        cachedHotspotY: _cachedHotspotY,
+        broadcastInFlight: _broadcastInFlight,
+        broadcastQueued: _broadcastQueued,
+        hiddenRemoteUsers: [...getHiddenSharedCursorUserIds()]
+    };
+}
+
 /**
  * Call this when the user changes their cursor settings to re-broadcast.
  */
 export async function refreshSharedCursorImage() {
-    if (!_active) return;
+    if (!_active || !_broadcastEnabled) return;
     await _broadcastCursorImage();
 }
 
@@ -73,7 +132,7 @@ export async function refreshSharedCursorImage() {
  * Receives canvas coordinates (PIXI.Point) from the stage pointer events.
  */
 function _onCanvasMouseMove(currentPos) {
-    if (!_active) return;
+    if (!_active || !_broadcastEnabled) return;
 
     const now = performance.now();
     if (now - _lastBroadcast < CURSOR_SHARE_THROTTLE_MS) return;
@@ -81,7 +140,8 @@ function _onCanvasMouseMove(currentPos) {
 
     debugLog("sharing", `Mouse move: emitting cursorMove at (${currentPos.x.toFixed(1)}, ${currentPos.y.toFixed(1)}), scene=${canvas.scene?.id}`);
 
-    game.socket.emit(SOCKET_EVENT, {
+    const socket = game.socket.volatile ?? game.socket;
+    socket.emit(SOCKET_EVENT, {
         type: "cursorMove",
         userId: game.user.id,
         sceneId: canvas.scene?.id,
@@ -91,6 +151,8 @@ function _onCanvasMouseMove(currentPos) {
 }
 
 async function _broadcastCursorImage() {
+    if (!_broadcastEnabled) return;
+
     // Guard against concurrent async calls — queue a re-run instead of interleaving
     if (_broadcastInFlight) {
         _broadcastQueued = true;
@@ -99,7 +161,8 @@ async function _broadcastCursorImage() {
     _broadcastInFlight = true;
 
     try {
-        const isCursorEnabled = game.settings.get(MODULE_ID, "use-custom-cursor");
+        const config = getUserCursorConfig(game.user);
+        const isCursorEnabled = config.useCustomCursor;
         if (!isCursorEnabled) {
             _cachedCursorDataUrl = null;
             _cachedHotspotX = 0;
@@ -108,7 +171,7 @@ async function _broadcastCursorImage() {
             return;
         }
 
-        const states = game.settings.get(MODULE_ID, "cursor-states");
+        const states = config.cursorStates;
         const def = states?.default;
         if (!def?.image) {
             _cachedCursorDataUrl = null;
@@ -143,7 +206,7 @@ async function _broadcastCursorImage() {
         _cachedCursorDataUrl = cvs.toDataURL('image/png');
         _cachedHotspotX = def.hotspotX;
         _cachedHotspotY = def.hotspotY;
-        _emitCursorImage(_cachedCursorDataUrl, _cachedHotspotX, _cachedHotspotY);
+        if (_broadcastEnabled) _emitCursorImage(_cachedCursorDataUrl, _cachedHotspotX, _cachedHotspotY);
     } catch (e) {
         console.warn(`${MODULE_ID} | Failed to build shared cursor image:`, e);
         _cachedCursorDataUrl = null;
@@ -160,12 +223,15 @@ async function _broadcastCursorImage() {
 }
 
 function _emitCursorImage(dataUrl, hotspotX, hotspotY) {
+    if (!_broadcastEnabled) return;
+
     // Include name position settings so other clients position the label correctly
     let namePosition = "bottom-center";
     let nameOffset = { x: 0, y: 1.2 };
     try {
-        namePosition = game.settings.get(MODULE_ID, "cursor-name-position");
-        nameOffset = game.settings.get(MODULE_ID, "cursor-name-offset");
+        const config = getUserCursorConfig(game.user);
+        namePosition = config.namePosition;
+        nameOffset = config.nameOffset;
     } catch { /* use defaults */ }
 
     game.socket.emit(SOCKET_EVENT, {
@@ -181,6 +247,14 @@ function _emitCursorImage(dataUrl, hotspotX, hotspotY) {
     debugLog("sharing", "Broadcast cursor image", dataUrl ? `(${dataUrl.length} bytes)` : "(cleared)");
 }
 
+function _emitCursorHidden() {
+    game.socket.emit(SOCKET_EVENT, {
+        type: "cursorHidden",
+        userId: game.user.id
+    });
+    debugLog("sharing", "Broadcast cursor hidden");
+}
+
 function _requestCursorImages(targetUserId = null) {
     game.socket.emit(SOCKET_EVENT, {
         type: "requestCursorImage",
@@ -193,9 +267,19 @@ function _requestCursorImages(targetUserId = null) {
 function _onSocketMessage(data) {
     debugLog("sharing", `Socket received: type=${data.type}, userId=${data.userId}, sceneId=${data.sceneId}`);
     if (data.type === "cursorMove") {
+        if (data.userId === game.user.id) return;
+        if (!isSharedCursorUserVisible(data.userId)) {
+            removeRemoteCursor(data.userId);
+            return;
+        }
         if (data.sceneId !== canvas.scene?.id) return;
         updateRemoteCursor(data.userId, data.x, data.y);
     } else if (data.type === "cursorImage") {
+        if (data.userId === game.user.id) return;
+        if (!isSharedCursorUserVisible(data.userId)) {
+            removeRemoteCursor(data.userId);
+            return;
+        }
         updateRemoteCursorImage(
             data.userId,
             data.imageDataUrl,
@@ -205,11 +289,22 @@ function _onSocketMessage(data) {
             data.namePosition,
             data.nameOffset
         );
+    } else if (data.type === "cursorHidden") {
+        if (data.userId === game.user.id) return;
+        removeRemoteCursor(data.userId);
+    } else if (data.type === "hiddenPing") {
+        if (data.userId === game.user.id) return;
+        if (data.sceneId !== canvas.scene?.id) return;
+        const user = game.users.get(data.userId);
+        if (!user || !canvas.ready || !data.position) return;
+        canvas.controls.handlePing(user, data.position, data.ping ?? {});
     } else if (data.type === "requestCursorImage") {
         if (data.userId === game.user.id) return;
         if (data.targetUserId && data.targetUserId !== game.user.id) return;
+        if (!_broadcastEnabled) return;
         // Another user is asking us for our cursor image
-        _emitCursorImage(_cachedCursorDataUrl, _cachedHotspotX, _cachedHotspotY);
+        if (_broadcastEnabled) _emitCursorImage(_cachedCursorDataUrl, _cachedHotspotX, _cachedHotspotY);
+        else _emitCursorHidden();
     }
 }
 
@@ -222,7 +317,7 @@ function _onUserConnected(user, connected) {
         // New user joined — send them our cursor image
         _emitCursorImage(_cachedCursorDataUrl, _cachedHotspotX, _cachedHotspotY);
         // Request their cursor image
-        _requestCursorImages(user.id);
+        if (isSharedCursorUserVisible(user.id)) _requestCursorImages(user.id);
         debugLog("sharing", `User connected: ${user.name}, exchanging cursor images`);
     }
 }
