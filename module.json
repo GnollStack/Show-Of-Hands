@@ -20,5 +20,6 @@
   ],
   "esmodules": [
     "scripts/main.js"
-  ]
+  ],
+  "license": "Proprietary"
 }

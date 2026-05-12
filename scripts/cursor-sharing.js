@@ -28,6 +28,8 @@ export function startCursorSharing(broadcastEnabled = true) {
     // Listen for our module's socket messages (cursor images + position)
     game.socket.on(SOCKET_EVENT, _onSocketMessage);
     debugLog("sharing", `Registered socket listener on "${SOCKET_EVENT}"`);
+    game.socket.on("userActivity", _onFoundryUserActivity);
+    debugLog("sharing", "Registered Foundry userActivity listener for cursor alignment");
 
     // Register a mouse move handler using Foundry's canvas system.
     // This receives canvas coordinates directly from PIXI pointer events.
@@ -85,6 +87,7 @@ export function stopCursorSharing() {
     _broadcastEnabled = false;
 
     game.socket.off(SOCKET_EVENT, _onSocketMessage);
+    game.socket.off("userActivity", _onFoundryUserActivity);
 
     if (_userConnectedHookId !== null) {
         Hooks.off("userConnected", _userConnectedHookId);
@@ -273,7 +276,7 @@ function _onSocketMessage(data) {
             return;
         }
         if (data.sceneId !== canvas.scene?.id) return;
-        updateRemoteCursor(data.userId, data.x, data.y);
+        updateRemoteCursor(data.userId, data.x, data.y, { source: "module" });
     } else if (data.type === "cursorImage") {
         if (data.userId === game.user.id) return;
         if (!isSharedCursorUserVisible(data.userId)) {
@@ -306,6 +309,39 @@ function _onSocketMessage(data) {
         if (_broadcastEnabled) _emitCursorImage(_cachedCursorDataUrl, _cachedHotspotX, _cachedHotspotY);
         else _emitCursorHidden();
     }
+}
+
+function _onFoundryUserActivity(userId, activityData = {}) {
+    if (!_active || userId === game.user.id) return;
+    if (!isSharedCursorUserVisible(userId)) {
+        removeRemoteCursor(userId);
+        return;
+    }
+
+    if (activityData.active === false) {
+        removeRemoteCursor(userId);
+        return;
+    }
+
+    const sceneId = activityData.sceneId ?? game.users.get(userId)?.viewedScene;
+    if (sceneId && sceneId !== canvas.scene?.id) {
+        removeRemoteCursor(userId);
+        return;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(activityData, "cursor")) return;
+
+    const cursor = activityData.cursor;
+    if (cursor === null) {
+        removeRemoteCursor(userId);
+        return;
+    }
+
+    const x = Number(cursor?.x);
+    const y = Number(cursor?.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+
+    updateRemoteCursor(userId, x, y, { source: "native" });
 }
 
 function _onUserConnected(user, connected) {

@@ -61,7 +61,7 @@ function installCursorPrivacyPatch() {
         if (this.isSelf && isCursorPrivateMode()) {
             const hasCursor = Object.prototype.hasOwnProperty.call(activityData, "cursor");
             const isPing = Object.prototype.hasOwnProperty.call(activityData, "ping");
-            if (hasCursor && this.isGM && isPing) {
+            if (hasCursor && isPing) {
                 broadcastHiddenPing(activityData.cursor, activityData.ping);
                 return;
             }
@@ -308,7 +308,7 @@ Hooks.once('init', () => {
 
     game.settings.register(MODULE_ID, "hide-my-cursor-from-others", {
         name: "Hide My Cursor From Others",
-        hint: "Privacy mode. Hide your cursor from other players regardless of their viewer settings, including this module's shared cursor and Foundry's built-in cursor dot/name. GM pings are sent through this module so they do not reveal your cursor.",
+        hint: "Privacy mode. Hide your cursor from other players regardless of their viewer settings, including this module's shared cursor and Foundry's built-in cursor dot/name. Canvas pings are sent through this module so they do not reveal your cursor.",
         scope: "client",
         config: false,
         type: Boolean,

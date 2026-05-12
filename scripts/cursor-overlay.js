@@ -3,8 +3,10 @@ import { MODULE_ID, CURSOR_POINTER_SIZE, CURSOR_FADE_TIMEOUT_MS, CURSOR_LERP_SPE
 let _container = null;
 const _cursors = new Map();
 const _pendingImages = new Map();
+const _pendingPositions = new Map();
 let _tickerCallback = null;
 let _imageLoadSerial = 0;
+const MOVEMENT_SOURCE_NATIVE = "native";
 
 // Cached settings — updated via onChange callbacks, avoids per-frame game.settings.get()
 const _settings = {
@@ -33,18 +35,11 @@ export function updateOverlaySetting(key, value) {
 }
 
 export function initCursorOverlay() {
-    if (_container) {
+    const parent = _getOverlayParent();
+    const wasInitialized = !!(_container && !_container.destroyed && _container.parent === parent);
+    if (_ensureOverlayContainer() && wasInitialized) {
         debugLog("sharing", "initCursorOverlay: already initialized, skipping");
-        return;
     }
-    _container = new PIXI.Container();
-    _container.name = "ttb-cursor-sharing";
-    _container.eventMode = "none";
-    canvas.controls.addChild(_container);
-
-    _tickerCallback = () => _tick();
-    canvas.app.ticker.add(_tickerCallback);
-    debugLog("sharing", `initCursorOverlay: container added to canvas.controls, parent=${_container.parent?.name || 'unknown'}, visible=${_container.visible}`);
 }
 
 export function destroyCursorOverlay() {
@@ -53,37 +48,40 @@ export function destroyCursorOverlay() {
         _tickerCallback = null;
     }
     _updateFoundryCursors(true, true);
-    // Destroy sprite textures before container teardown to prevent cache leaks
-    for (const [, entry] of _cursors) {
-        if (entry.sprite) {
-            entry.sprite.destroy({ texture: true, baseTexture: true });
-            entry.sprite = null;
-        }
-    }
-    if (_container) {
+    _destroyAllCursorEntries();
+    if (_container && !_container.destroyed) {
         _container.destroy({ children: true });
-        _container = null;
     }
+    _container = null;
     _cursors.clear();
     _pendingImages.clear();
+    _pendingPositions.clear();
     _lastFoundryNames = null;
     _lastFoundryDots = null;
     _lastFoundryCursorChildren = [];
     debugLog("sharing", "Cursor overlay destroyed");
 }
 
-export function updateRemoteCursor(userId, worldX, worldY) {
-    if (!_container) {
+export function updateRemoteCursor(userId, worldX, worldY, { source = "module" } = {}) {
+    if (!_ensureOverlayContainer(false)) {
         debugLog("sharing", "updateRemoteCursor: no container!");
         return;
     }
     if (userId === game.user.id) return;
+
+    if (source === MOVEMENT_SOURCE_NATIVE) {
+        _pendingPositions.set(userId, { x: worldX, y: worldY });
+        if (!_cursors.has(userId) && !_pendingImages.has(userId)) return;
+    }
 
     const entry = _getOrCreateCursor(userId);
     if (!entry) {
         debugLog("sharing", `updateRemoteCursor: failed to create cursor for ${userId}`);
         return;
     }
+
+    if (source !== MOVEMENT_SOURCE_NATIVE && entry.nativeMovementSeen) return;
+    if (source === MOVEMENT_SOURCE_NATIVE) entry.nativeMovementSeen = true;
 
     debugLog("sharing", `updateRemoteCursor: userId=${userId}, pos=(${worldX.toFixed(1)}, ${worldY.toFixed(1)})`);
 
@@ -95,7 +93,9 @@ export function updateRemoteCursor(userId, worldX, worldY) {
 
     // On first update, snap directly to position
     if (!entry.initialized) {
-        entry.container.position.set(worldX, worldY);
+        entry.currentX = worldX;
+        entry.currentY = worldY;
+        _projectCursorPosition(entry);
         entry.initialized = true;
         debugLog("sharing", `updateRemoteCursor: FIRST position set for ${userId} at (${worldX.toFixed(1)}, ${worldY.toFixed(1)})`);
     }
@@ -104,10 +104,13 @@ export function updateRemoteCursor(userId, worldX, worldY) {
 export function updateRemoteCursorImage(userId, imageDataUrl, hotspotX, hotspotY, playerName, namePosition, nameOffset) {
     if (userId === game.user.id) return;
 
+    _ensureOverlayContainer(false);
     const entry = _cursors.get(userId);
     if (!_container || !entry) {
         // Store pending image data for when cursor is created
         _pendingImages.set(userId, { imageDataUrl, hotspotX, hotspotY, playerName, namePosition, nameOffset });
+        const pendingPosition = _pendingPositions.get(userId);
+        if (pendingPosition) updateRemoteCursor(userId, pendingPosition.x, pendingPosition.y, { source: MOVEMENT_SOURCE_NATIVE });
         return;
     }
 
@@ -117,6 +120,9 @@ export function updateRemoteCursorImage(userId, imageDataUrl, hotspotX, hotspotY
     if (namePosition) entry.namePosition = namePosition;
     if (nameOffset) entry.nameOffset = nameOffset;
     entry.nameDirty = true;
+    entry.imageDataUrl = imageDataUrl;
+    entry.hotspotX = hotspotX;
+    entry.hotspotY = hotspotY;
 
     _applyCursorImage(entry, imageDataUrl, hotspotX, hotspotY);
 }
@@ -124,20 +130,17 @@ export function updateRemoteCursorImage(userId, imageDataUrl, hotspotX, hotspotY
 export function removeRemoteCursor(userId) {
     const entry = _cursors.get(userId);
     if (entry) {
-        if (entry.sprite) {
-            entry.container.removeChild(entry.sprite);
-            entry.sprite.destroy({ texture: true, baseTexture: true });
-            entry.sprite = null;
-        }
-        entry.container.destroy({ children: true });
+        _destroyCursorEntry(entry);
         _cursors.delete(userId);
         debugLog("sharing", `Removed cursor for user ${userId}`);
     }
     _pendingImages.delete(userId);
+    _pendingPositions.delete(userId);
 }
 
 function _getOrCreateCursor(userId) {
     if (_cursors.has(userId)) return _cursors.get(userId);
+    if (!_ensureOverlayContainer(false)) return null;
 
     const user = game.users.get(userId);
     if (!user) return null;
@@ -200,6 +203,8 @@ function _getOrCreateCursor(userId) {
         idleText,
         sprite: null,
         playerName: user.name,
+        currentX: 0,
+        currentY: 0,
         targetX: 0,
         targetY: 0,
         initialized: false,
@@ -208,7 +213,11 @@ function _getOrCreateCursor(userId) {
         namePosition: null,
         nameOffset: null,
         nameDirty: true,
-        imageLoadId: 0
+        imageLoadId: 0,
+        imageDataUrl: null,
+        hotspotX: 0,
+        hotspotY: 0,
+        nativeMovementSeen: false
     };
     _cursors.set(userId, entry);
     debugLog("sharing", `Created cursor for ${user.name}`);
@@ -234,15 +243,16 @@ function _setCursorLabel(entry, playerName) {
 }
 
 function _applyCursorImage(entry, imageDataUrl, hotspotX, hotspotY) {
+    if (!entry.container || entry.container.destroyed) return;
+
     const imageLoadId = ++_imageLoadSerial;
     entry.imageLoadId = imageLoadId;
+    entry.imageDataUrl = imageDataUrl;
+    entry.hotspotX = hotspotX;
+    entry.hotspotY = hotspotY;
 
     // Remove old sprite and its texture to prevent PIXI texture cache leaks
-    if (entry.sprite) {
-        entry.container.removeChild(entry.sprite);
-        entry.sprite.destroy({ texture: true, baseTexture: true });
-        entry.sprite = null;
-    }
+    _destroyCursorSprite(entry);
 
     if (!imageDataUrl) {
         // Revert to arrow
@@ -275,6 +285,7 @@ function _applyCursorImage(entry, imageDataUrl, hotspotX, hotspotY) {
         debugLog("sharing", `Applied custom cursor image for user, size=${img.width}x${img.height}`);
     };
     img.onerror = () => {
+        if (!entry.container || entry.container.destroyed) return;
         if (entry.imageLoadId !== imageLoadId) return;
         console.warn(`${MODULE_ID} | Failed to load shared cursor image`);
         entry.arrow.visible = true;
@@ -289,10 +300,95 @@ let _lastFoundryNames = null;
 let _lastFoundryDots = null;
 let _lastFoundryCursorChildren = [];
 
+function _getOverlayParent() {
+    const parent = canvas?.controls?.cursors;
+    if (!parent || parent.destroyed) return null;
+    return parent;
+}
+
+function _ensureOverlayContainer(logMissing = true) {
+    const parent = _getOverlayParent();
+    if (!parent) {
+        if (logMissing) debugLog("sharing", "initCursorOverlay: canvas.controls.cursors unavailable");
+        return false;
+    }
+
+    if (_container?.destroyed) {
+        _queuePendingImagesFromEntries();
+        _cursors.clear();
+        _container = null;
+    }
+
+    if (!_container) {
+        _container = new PIXI.Container();
+        _container.name = "ttb-cursor-sharing";
+        _container.eventMode = "none";
+        parent.addChild(_container);
+        _lastFoundryCursorChildren = [];
+        debugLog("sharing", `initCursorOverlay: container added to canvas.controls.cursors, visible=${_container.visible}`);
+    } else if (_container.parent !== parent) {
+        parent.addChild(_container);
+        _lastFoundryCursorChildren = [];
+        debugLog("sharing", "initCursorOverlay: container reattached to current canvas.controls.cursors");
+    }
+
+    if (!_tickerCallback) {
+        _tickerCallback = () => _tick();
+        canvas.app.ticker.add(_tickerCallback);
+    }
+
+    return true;
+}
+
+function _queuePendingImagesFromEntries() {
+    for (const [userId, entry] of _cursors) {
+        _pendingImages.set(userId, {
+            imageDataUrl: entry.imageDataUrl ?? null,
+            hotspotX: entry.hotspotX ?? 0,
+            hotspotY: entry.hotspotY ?? 0,
+            playerName: entry.playerName,
+            namePosition: entry.namePosition,
+            nameOffset: entry.nameOffset
+        });
+    }
+}
+
+function _destroyCursorSprite(entry) {
+    if (!entry?.sprite) return;
+    if (!entry.sprite.destroyed) {
+        if (entry.sprite.parent && !entry.sprite.parent.destroyed) entry.sprite.parent.removeChild(entry.sprite);
+        entry.sprite.destroy({ texture: true, baseTexture: true });
+    }
+    entry.sprite = null;
+}
+
+function _destroyCursorEntry(entry) {
+    if (!entry) return;
+    _destroyCursorSprite(entry);
+    if (entry.container && !entry.container.destroyed) entry.container.destroy({ children: true });
+    entry.container = null;
+}
+
+function _destroyAllCursorEntries() {
+    for (const [, entry] of _cursors) {
+        _destroyCursorEntry(entry);
+    }
+}
+
+function _getFoundryCursorChildren() {
+    return [...(canvas.controls?.cursors?.children ?? [])].filter(child => child !== _container && child?.name !== "ttb-cursor-sharing");
+}
+
+function _projectCursorPosition(entry) {
+    if (!entry?.container || entry.container.destroyed) return;
+    canvas.app.stage.worldTransform.apply(
+        { x: entry.currentX, y: entry.currentY },
+        entry.container.position
+    );
+}
+
 function _updateFoundryCursors(showFoundryNames, showFoundryDots) {
-    const foundryCursors = canvas.controls?.cursors;
-    if (!foundryCursors) return;
-    for (const cursor of foundryCursors.children) {
+    for (const cursor of _getFoundryCursorChildren()) {
         if (!cursor.children) continue;
         for (const child of cursor.children) {
             if (child instanceof PIXI.Graphics) {
@@ -317,15 +413,16 @@ function _getEffectiveFoundryCursorDisplay(foundryCursorDisplay, showModuleNames
 }
 
 function _tick() {
+    if (!_ensureOverlayContainer(false)) return;
+
     const now = Date.now();
-    const zoom = canvas.stage.scale.x || 1;
     const { cursorSize, cursorOpacity, showNames, foundryCursorDisplay, namePosition, nameOffset } = _settings;
     const effectiveFoundryCursorDisplay = _getEffectiveFoundryCursorDisplay(foundryCursorDisplay, showNames);
 
     // Only update Foundry's native cursor elements when the setting actually changes
     const showFoundryNames = effectiveFoundryCursorDisplay === "both" || effectiveFoundryCursorDisplay === "names-only";
     const showFoundryDots = effectiveFoundryCursorDisplay === "both" || effectiveFoundryCursorDisplay === "dots-only";
-    const foundryCursorChildren = [...(canvas.controls?.cursors?.children ?? [])];
+    const foundryCursorChildren = _getFoundryCursorChildren();
     if (
         showFoundryNames !== _lastFoundryNames ||
         showFoundryDots !== _lastFoundryDots ||
@@ -338,6 +435,8 @@ function _tick() {
     }
 
     for (const [, entry] of _cursors) {
+        if (!entry.container || entry.container.destroyed) continue;
+
         // Toggle module overlay name label visibility and position
         // Only recalculate positioning when something changed (nameDirty flag)
         if (showNames) {
@@ -397,26 +496,26 @@ function _tick() {
         }
         // Smooth interpolation toward target position (matches Foundry's native dx/10 approach)
         if (entry.initialized) {
-            const cx = entry.container.position.x;
-            const cy = entry.container.position.y;
+            const cx = entry.currentX;
+            const cy = entry.currentY;
             const dx = entry.targetX - cx;
             const dy = entry.targetY - cy;
 
             // Snap if very close, otherwise lerp (matching Foundry's snap threshold)
             if (Math.abs(dx) + Math.abs(dy) < 0.5 / (CONFIG.Canvas.maxZoom || 3)) {
-                entry.container.position.set(entry.targetX, entry.targetY);
+                entry.currentX = entry.targetX;
+                entry.currentY = entry.targetY;
             } else {
-                entry.container.position.set(
-                    cx + dx * CURSOR_LERP_SPEED,
-                    cy + dy * CURSOR_LERP_SPEED
-                );
+                entry.currentX = cx + dx * CURSOR_LERP_SPEED;
+                entry.currentY = cy + dy * CURSOR_LERP_SPEED;
             }
+            _projectCursorPosition(entry);
         }
 
-        // Apply zoom-compensating scale
+        // The parent is Foundry's unbound screen-space cursor container, so
+        // scaling is already viewport-stable and must not be divided by zoom.
         const baseSize = entry.baseSize || CURSOR_POINTER_SIZE;
-        const worldScale = cursorSize / (baseSize * zoom);
-        entry.container.scale.set(worldScale);
+        entry.container.scale.set(cursorSize / baseSize);
 
         // Apply base opacity, with fade-out after timeout
         // When idle identity fade is enabled, use per-element alpha so hidden
