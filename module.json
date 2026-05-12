@@ -1,7 +1,7 @@
 {
   "id": "target-the-beastie",
   "title": "Target The Beastie!",
-  "version": "13.4.0",
+  "version": "13.4.1",
   "compatibility": {
     "minimum": "13",
     "verified": "13.315"
