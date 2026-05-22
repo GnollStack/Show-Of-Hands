@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "useCustomCursor": true,
+  "namePosition": "bottom-center",
+  "nameOffset": {
+    "x": 0,
+    "y": 1.2
+  },
+  "cursorStates": {
+    "default": {
+      "image": "modules/target-the-beastie/assets/AOM_cursor_pointer.png",
+      "hotspotX": 4,
+      "hotspotY": 4,
+      "rotation": 0,
+      "width": 0,
+      "height": 0,
+      "enabled": true
+    },
+    "hover": {
+      "image": "",
+      "hotspotX": 0,
+      "hotspotY": 0,
+      "rotation": 0,
+      "width": 0,
+      "height": 0,
+      "enabled": true
+    },
+    "click": {
+      "image": "",
+      "hotspotX": 0,
+      "hotspotY": 0,
+      "rotation": 0,
+      "width": 0,
+      "height": 0,
+      "enabled": true
+    },
+    "drag": {
+      "image": "",
+      "hotspotX": 0,
+      "hotspotY": 0,
+      "rotation": 0,
+      "width": 0,
+      "height": 0,
+      "enabled": true
+    },
+    "dragging": {
+      "image": "",
+      "hotspotX": 0,
+      "hotspotY": 0,
+      "rotation": 0,
+      "width": 0,
+      "height": 0,
+      "enabled": true
+    },
+    "resize": {
+      "image": "",
+      "hotspotX": 0,
+      "hotspotY": 0,
+      "rotation": 0,
+      "width": 0,
+      "height": 0,
+      "enabled": true
+    },
+    "text": {
+      "image": "",
+      "hotspotX": 0,
+      "hotspotY": 0,
+      "rotation": 0,
+      "width": 0,
+      "height": 0,
+      "enabled": true
+    },
+    "targeting": {
+      "image": "",
+      "hotspotX": 0,
+      "hotspotY": 0,
+      "rotation": 0,
+      "width": 0,
+      "height": 0,
+      "enabled": true
+    },
+    "panning": {
+      "image": "",
+      "hotspotX": 0,
+      "hotspotY": 0,
+      "rotation": 0,
+      "width": 0,
+      "height": 0,
+      "enabled": true
+    }
+  }
+}

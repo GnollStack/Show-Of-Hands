@@ -29,10 +29,26 @@ import { CursorConfigApp } from './cursor-config-app.js';
 import { AdvancedSettingsApp } from './advanced-settings-app.js';
 import { initCursorOverlay, destroyCursorOverlay, updateOverlaySetting } from './cursor-overlay.js';
 import { startCursorSharing, stopCursorSharing, refreshSharedCursorImage, setCursorBroadcastEnabled, broadcastHiddenPing, syncHiddenRemoteCursors, getCursorSharingDebugState } from './cursor-sharing.js';
+import { createDiagnostics } from './diagnostics.js';
 
 debugLog("cursor", "main.js loaded, all imports resolved OK");
 
 let _originalBroadcastActivity = null;
+
+function summarizeCursorConfigForLog(config) {
+    const states = config?.cursorStates ?? {};
+    const enabledStates = Object.entries(states)
+        .filter(([, state]) => state?.enabled !== false && state?.image)
+        .map(([key]) => key);
+
+    return {
+        useCustomCursor: !!config?.useCustomCursor,
+        namePosition: config?.namePosition ?? null,
+        nameOffset: config?.nameOffset ?? null,
+        stateCount: Object.keys(states).length,
+        enabledImageStates: enabledStates
+    };
+}
 
 function syncMiddleMouseListener() {
     const hasMiddleMouseAction = getMiddleMouseActionMode() !== "off";
@@ -106,10 +122,17 @@ function getDebugState() {
 }
 
 function installApi() {
+    const openAdvancedSettings = () => new AdvancedSettingsApp().render({ force: true });
+    const openCursorConfig = ({ targetUserId } = {}) => new CursorConfigApp({ targetUserId }).render({ force: true });
     const api = {
         getDebugState,
         refreshSharedCursorImage,
-        syncHiddenRemoteCursors
+        syncHiddenRemoteCursors,
+        diagnostics: createDiagnostics({
+            getDebugState,
+            openAdvancedSettings,
+            openCursorConfig
+        })
     };
     const module = game.modules.get(MODULE_ID);
     if (module) module.api = api;
@@ -428,6 +451,6 @@ Hooks.once('ready', async () => {
     installApi();
     syncCursorPrivacy();
     const cursorConfig = getUserCursorConfig(game.user);
-    debugLog("cursor", "ready hook: user cursor profile =", JSON.stringify(cursorConfig, null, 2));
+    debugLog("cursor", "ready hook: user cursor profile summary =", summarizeCursorConfigForLog(cursorConfig));
     await applyCursorStyles(cursorConfig.useCustomCursor);
 });

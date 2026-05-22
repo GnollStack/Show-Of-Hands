@@ -11,7 +11,8 @@ function choiceEntries(choices, selected) {
 
 function getDiagnosticsText() {
     try {
-        const state = game.modules.get(MODULE_ID)?.api?.getDebugState?.() ?? {};
+        const api = game.modules.get(MODULE_ID)?.api;
+        const state = api?.diagnostics?.actions?.getStatus?.() ?? api?.getDebugState?.() ?? {};
         return JSON.stringify(state, null, 2);
     } catch (e) {
         return JSON.stringify({ error: e.message }, null, 2);

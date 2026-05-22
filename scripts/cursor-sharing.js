@@ -15,6 +15,23 @@ let _cachedHotspotX = 0;
 let _cachedHotspotY = 0;
 let _broadcastInFlight = false;
 let _broadcastQueued = false;
+let _lastMoveDebugLog = 0;
+let _lastSocketMoveDebugLog = 0;
+
+function debugCursorMoveBroadcast(currentPos, now) {
+    if (now - _lastMoveDebugLog < 1000) return;
+    _lastMoveDebugLog = now;
+    debugLog("sharing", `Mouse move: emitting cursorMove at (${currentPos.x.toFixed(1)}, ${currentPos.y.toFixed(1)}), scene=${canvas.scene?.id}`);
+}
+
+function debugSocketMessage(data) {
+    if (data?.type === "cursorMove") {
+        const now = performance.now();
+        if (now - _lastSocketMoveDebugLog < 1000) return;
+        _lastSocketMoveDebugLog = now;
+    }
+    debugLog("sharing", `Socket received: type=${data.type}, userId=${data.userId}, sceneId=${data.sceneId}`);
+}
 
 export function startCursorSharing(broadcastEnabled = true) {
     debugLog("sharing", `startCursorSharing called, _active=${_active}, _registered=${_registered}, broadcastEnabled=${broadcastEnabled}`);
@@ -141,7 +158,7 @@ function _onCanvasMouseMove(currentPos) {
     if (now - _lastBroadcast < CURSOR_SHARE_THROTTLE_MS) return;
     _lastBroadcast = now;
 
-    debugLog("sharing", `Mouse move: emitting cursorMove at (${currentPos.x.toFixed(1)}, ${currentPos.y.toFixed(1)}), scene=${canvas.scene?.id}`);
+    debugCursorMoveBroadcast(currentPos, now);
 
     const socket = game.socket.volatile ?? game.socket;
     socket.emit(SOCKET_EVENT, {
@@ -268,7 +285,7 @@ function _requestCursorImages(targetUserId = null) {
 }
 
 function _onSocketMessage(data) {
-    debugLog("sharing", `Socket received: type=${data.type}, userId=${data.userId}, sceneId=${data.sceneId}`);
+    debugSocketMessage(data);
     if (data.type === "cursorMove") {
         if (data.userId === game.user.id) return;
         if (!isSharedCursorUserVisible(data.userId)) {

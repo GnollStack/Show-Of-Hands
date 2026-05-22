@@ -1,0 +1,11 @@
+{
+  "name": "target-the-beastie",
+  "version": "13.4.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check:syntax": "node tests/syntax-check.mjs",
+    "smoke": "node tests/local-smoke.mjs",
+    "test": "node --test tests"
+  }
+}

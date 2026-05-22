@@ -59,6 +59,26 @@ const ROOT_CURSOR_VARIABLES = [
 
 let _applyCursorSerial = 0;
 
+function summarizeCursorStatesForLog(states = {}) {
+    return Object.fromEntries(Object.entries(states ?? {}).map(([key, state]) => [
+        key,
+        {
+            enabled: state?.enabled !== false,
+            hasImage: typeof state?.image === "string" && state.image.length > 0,
+            image: state?.image || "",
+            hotspot: [state?.hotspotX ?? 0, state?.hotspotY ?? 0],
+            rotation: state?.rotation ?? 0,
+            size: [state?.width ?? 0, state?.height ?? 0]
+        }
+    ]));
+}
+
+function summarizeCursorValueForLog(value) {
+    if (typeof value !== "string") return value;
+    const summarized = value.replace(/url\('data:image\/[^']+'\)/g, match => `url('[data-url ${match.length} chars]')`);
+    return summarized.length > 240 ? `${summarized.slice(0, 240)}...` : summarized;
+}
+
 export async function getRotatedCursor(imageSrc, hotspotX, hotspotY, degrees, targetWidth = 0, targetHeight = 0) {
     const hasRotation = degrees && degrees !== 0;
     const hasResize = targetWidth > 0 || targetHeight > 0;
@@ -223,7 +243,7 @@ export async function applyCursorStyles(isEnabled) {
     }
 
     const states = config.cursorStates;
-    debugLog("cursor", "applyCursorStyles: loaded user cursor-states:", JSON.stringify(states, null, 2));
+    debugLog("cursor", "applyCursorStyles: loaded user cursor-states summary:", summarizeCursorStatesForLog(states));
 
     const rootCursorValues = [];
     for (const nativeState of ROOT_CURSOR_VARIABLES) {
@@ -274,12 +294,12 @@ export async function applyCursorStyles(isEnabled) {
     cssParts.push(buildCursorRule("#board.ttb-cursor-panning, #board.ttb-cursor-panning *", panningValue, true));
 
     const finalCSS = cssParts.join("\n");
-    debugLog("cursor", "applyCursorStyles: final CSS:\n", finalCSS);
+    debugLog("cursor", `applyCursorStyles: generated ${cssParts.length} CSS rules (${finalCSS.length} chars)`);
 
     const rootStyle = document.documentElement?.style;
     for (const { cssVar, value } of rootCursorValues) {
         rootStyle?.setProperty(cssVar, value);
-        debugLog("cursor", `applyCursorStyles: set ${cssVar} = ${value}`);
+        debugLog("cursor", `applyCursorStyles: set ${cssVar} = ${summarizeCursorValueForLog(value)}`);
     }
     rootStyle?.setProperty("--cursor-default-down", "var(--cursor-default)");
     rootStyle?.setProperty("--cursor-text-down", "var(--cursor-text)");

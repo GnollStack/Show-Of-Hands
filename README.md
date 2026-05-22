@@ -2,7 +2,7 @@
 
 A Foundry VTT module for quick token targeting, custom cursors, and multiplayer cursor sharing.
 
-**Version:** 13.3.0  
+**Version:** 13.4.1  
 **Compatibility:** Foundry VTT v13+ (verified on v13.315)  
 **Author:** GnollStack
 
@@ -154,11 +154,20 @@ Open **Advanced Settings** from the module settings to tune less-common behavior
 - Hide specific players' shared cursors on your own client
 - View and copy diagnostics for troubleshooting
 
-The module also exposes diagnostics in the console:
+The module exposes a compact support snapshot in the console:
 
 ```js
 game.modules.get("target-the-beastie").api.getDebugState()
 TargetTheBeastie.getDebugState()
+```
+
+For MCP-based diagnostics, enable **Debug Mode** as a GM and use the allowlisted diagnostics API:
+
+```js
+game.modules.get("target-the-beastie").api.diagnostics.actions.getStatus()
+game.modules.get("target-the-beastie").api.diagnostics.actions.validateCursorConfig()
+game.modules.get("target-the-beastie").api.diagnostics.actions.validateCursorAssets()
+game.modules.get("target-the-beastie").api.diagnostics.actions.runSmokeTests()
 ```
 
 ## Performance Notes
