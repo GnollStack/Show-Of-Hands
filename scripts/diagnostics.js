@@ -11,6 +11,8 @@ import {
     DIAGNOSTICS_API_VERSION,
     DIAGNOSTIC_ACTION_NAMES,
     DIAGNOSTIC_SETTING_KEYS,
+    MUTATING_DIAGNOSTIC_ACTION_NAMES,
+    READ_ONLY_DIAGNOSTIC_ACTION_NAMES,
     buildSmokeReport,
     collectCursorAssetCandidates,
     compareCursorStates,
@@ -20,10 +22,24 @@ import {
     makeSmokeWarning,
     summarizeCursorConfig,
     validateCursorConfig,
+    validateV14RuntimeSnapshot,
     validateSettingsSnapshot
 } from './diagnostics-core.js';
+import {
+    FIXTURE_FLAG,
+    FIXTURE_PREFIX,
+    cleanupFixtures as cleanupAutomationFixtures,
+    getFixtureStatus,
+    runAutomation as runDiagnosticsAutomation
+} from './mcp-diagnostics-automation.js';
+import { getShowCursorPermissionState } from './foundry-permissions.js';
 
 const DEFAULT_ASSET_LOAD_TIMEOUT_MS = 2000;
+const DEFAULT_CLIENT_DIAGNOSTICS_TIMEOUT_MS = 1000;
+const CLIENT_DIAGNOSTICS_REQUEST = "mcpDiagnosticsClientRequest";
+const CLIENT_DIAGNOSTICS_RESPONSE = "mcpDiagnosticsClientResponse";
+
+let diagnosticsSocketResponderInstalled = false;
 
 function tryGetSetting(key) {
     try {
@@ -61,8 +77,46 @@ function collectionSize(collection) {
     return 0;
 }
 
+function collectionValues(collection, limit = 25) {
+    if (!collection) return [];
+    if (Array.isArray(collection)) return collection.slice(0, limit);
+    if (Array.isArray(collection.contents)) return collection.contents.slice(0, limit);
+    if (typeof collection.values === "function") {
+        try {
+            return [...collection.values()].slice(0, limit);
+        } catch (error) {
+            return [];
+        }
+    }
+    if (typeof collection[Symbol.iterator] === "function") {
+        try {
+            return [...collection].slice(0, limit);
+        } catch (error) {
+            return [];
+        }
+    }
+    return [];
+}
+
+function getActiveScene() {
+    return canvas?.scene ?? game.scenes?.active ?? null;
+}
+
+function getWorldDataCounts() {
+    const scene = getActiveScene();
+    return {
+        users: collectionSize(game.users),
+        scenes: collectionSize(game.scenes),
+        actors: collectionSize(game.actors),
+        items: collectionSize(game.items),
+        journals: collectionSize(game.journal),
+        packs: collectionSize(game.packs),
+        activeSceneTokens: collectionSize(scene?.tokens)
+    };
+}
+
 function summarizeRuntime() {
-    const scene = canvas?.scene ?? game.scenes?.active ?? null;
+    const scene = getActiveScene();
     return {
         foundry: {
             version: game.version ?? null,
@@ -80,7 +134,9 @@ function summarizeRuntime() {
         user: {
             id: game.user?.id ?? null,
             name: game.user?.name ?? null,
-            isGM: !!game.user?.isGM
+            isGM: !!game.user?.isGM,
+            active: !!game.user?.active,
+            showCursorPermission: getShowCursorPermissionState(game.user)
         },
         scene: scene
             ? {
@@ -90,14 +146,7 @@ function summarizeRuntime() {
                 tokenCount: collectionSize(scene.tokens)
             }
             : null,
-        counts: {
-            users: collectionSize(game.users),
-            scenes: collectionSize(game.scenes),
-            actors: collectionSize(game.actors),
-            items: collectionSize(game.items),
-            journals: collectionSize(game.journal),
-            packs: collectionSize(game.packs)
-        },
+        counts: getWorldDataCounts(),
         canvasReady: !!canvas?.ready
     };
 }
@@ -107,20 +156,59 @@ function getDebugMode() {
     return typeof mode === "string" ? mode : "off";
 }
 
+function getGateReason(gates) {
+    if (!gates.activeGMUser) return "Diagnostics require an active GM user.";
+    if (!gates.debugLogging) return "Diagnostics require Target The Beastie Debug Mode to be enabled.";
+    if (!gates.enableMcpDiagnostics) return "Diagnostics require Enable MCP Diagnostics to be enabled.";
+    return null;
+}
+
 function getDiagnosticsGate() {
-    const isGM = !!game.user?.isGM;
+    const activeGMUser = !!game.user?.isGM;
     const debugMode = getDebugMode();
-    const debugEnabled = debugMode !== "off";
-    const available = isGM && debugEnabled;
+    const debugLogging = debugMode !== "off";
+    const enableMcpDiagnostics = tryGetSetting("enableMcpDiagnostics") === true;
+    const gates = {
+        activeGMUser,
+        debugLogging,
+        enableMcpDiagnostics
+    };
+    const available = Object.values(gates).every(Boolean);
 
     return {
         available,
-        isGM,
+        isGM: activeGMUser,
+        activeGMUser,
         debugMode,
-        debugEnabled,
+        debugEnabled: debugLogging,
+        debugLogging,
+        enableMcpDiagnostics,
+        gates,
+        reason: available ? null : getGateReason(gates)
+    };
+}
+
+function getMutationAvailability(args = {}) {
+    const diagnostics = getDiagnosticsGate();
+    const confirmMutation = args.confirmMutation === true;
+    const gates = {
+        ...diagnostics.gates,
+        confirmMutation
+    };
+    const available = diagnostics.available && confirmMutation;
+
+    return {
+        available,
+        diagnosticsAvailable: diagnostics.available,
+        mutationEnabled: diagnostics.available,
+        confirmMutation,
+        gates,
         reason: available
             ? null
-            : (!isGM ? "Diagnostics require an active GM user." : "Diagnostics require Target The Beastie Debug Mode to be enabled.")
+            : (
+                diagnostics.reason ??
+                "MCP Diagnostics Automation requires confirmMutation: true."
+            )
     };
 }
 
@@ -170,7 +258,8 @@ function getCursorControlSettings(settingsSnapshot) {
         sharedCursorOpacity: settingsSnapshot["shared-cursor-opacity"],
         showCursorNames: settingsSnapshot["show-cursor-names"],
         foundryCursorDisplay: settingsSnapshot["foundry-cursor-display"],
-        debugMode: settingsSnapshot["debug-mode"]
+        debugMode: settingsSnapshot["debug-mode"],
+        enableMcpDiagnostics: settingsSnapshot.enableMcpDiagnostics
     };
 }
 
@@ -237,10 +326,152 @@ async function runGatedActionAsync(action, args, handler) {
     }
 }
 
+async function runGatedMutationActionAsync(action, args, handler) {
+    const gate = getMutationAvailability(args ?? {});
+    if (!gate.available) {
+        return {
+            success: false,
+            action,
+            diagnosticsAvailable: gate.diagnosticsAvailable,
+            mutationAvailable: false,
+            gate,
+            error: gate.reason
+        };
+    }
+
+    try {
+        const payload = await handler(args ?? {}, gate);
+        return jsonSafeClone({
+            success: true,
+            action,
+            diagnosticsAvailable: true,
+            mutationAvailable: true,
+            gate,
+            ...payload
+        });
+    } catch (error) {
+        return jsonSafeClone({
+            success: false,
+            action,
+            diagnosticsAvailable: true,
+            mutationAvailable: true,
+            gate,
+            error: error?.message ?? String(error)
+        });
+    }
+}
+
 function getAssetTimeoutMs(args = {}) {
     const requested = Number(args.timeoutMs);
     if (!Number.isFinite(requested)) return DEFAULT_ASSET_LOAD_TIMEOUT_MS;
     return Math.min(10000, Math.max(250, Math.round(requested)));
+}
+
+function getClientDiagnosticsTimeoutMs(args = {}) {
+    const requested = Number(args.timeoutMs);
+    if (!Number.isFinite(requested)) return DEFAULT_CLIENT_DIAGNOSTICS_TIMEOUT_MS;
+    return Math.min(5000, Math.max(250, Math.round(requested)));
+}
+
+function getRefreshDelayMs(args = {}) {
+    const requested = Number(args.delayMs);
+    if (!Number.isFinite(requested)) return 250;
+    return Math.min(5000, Math.max(0, Math.round(requested)));
+}
+
+function getFoundryGeneration() {
+    const releaseGeneration = Number(game.release?.generation);
+    if (Number.isFinite(releaseGeneration)) return releaseGeneration;
+
+    const versionGeneration = Number(String(game.version ?? "").split(".")[0]);
+    return Number.isFinite(versionGeneration) ? versionGeneration : null;
+}
+
+function summarizeSceneLevel(level) {
+    if (!level || typeof level !== "object") return null;
+    const rawElevation = Number(level.elevation ?? level.level ?? level.value);
+    return {
+        id: level.id ?? level._id ?? null,
+        name: level.name ?? level.label ?? null,
+        elevation: Number.isFinite(rawElevation) ? rawElevation : null
+    };
+}
+
+function getSceneLevelInfo(scene = getActiveScene()) {
+    const info = {
+        sceneId: scene?.id ?? null,
+        sceneName: scene?.name ?? null,
+        hasAvailableLevels: false,
+        availableLevelCount: 0,
+        availableLevelIds: [],
+        availableLevels: [],
+        hasFirstLevel: false,
+        firstLevelId: null,
+        firstLevel: null
+    };
+
+    if (!scene) return info;
+
+    try {
+        const availableLevels = scene.availableLevels;
+        info.hasAvailableLevels = availableLevels !== undefined && availableLevels !== null;
+        info.availableLevelCount = collectionSize(availableLevels);
+        info.availableLevels = collectionValues(availableLevels)
+            .map(summarizeSceneLevel)
+            .filter(Boolean);
+        info.availableLevelIds = info.availableLevels
+            .map(level => level.id)
+            .filter(id => id !== null && id !== undefined);
+
+        const firstLevel = scene.firstLevel;
+        info.hasFirstLevel = firstLevel !== undefined && firstLevel !== null;
+        info.firstLevel = summarizeSceneLevel(firstLevel);
+        info.firstLevelId = info.firstLevel?.id ?? null;
+    } catch (error) {
+        info.error = error?.message ?? String(error);
+    }
+
+    return jsonSafeClone(info, { maxDepth: 4, maxArrayLength: 25, maxStringLength: 500 });
+}
+
+function collectV14RuntimeChecks() {
+    const applications = foundry.applications ?? {};
+    const api = applications.api ?? {};
+    const apps = applications.apps ?? {};
+    const ux = applications.ux ?? {};
+    const FilePickerClass = apps.FilePicker;
+    const FormDataExtendedClass = ux.FormDataExtended;
+    const scene = getActiveScene();
+
+    return {
+        foundryVersion: game.version ?? null,
+        foundryGeneration: getFoundryGeneration(),
+        canvasReady: !!canvas?.ready,
+        applicationV2: typeof api.ApplicationV2 === "function",
+        handlebarsApplicationMixin: typeof api.HandlebarsApplicationMixin === "function",
+        dialogV2: typeof api.DialogV2?.confirm === "function",
+        filePickerImplementation: typeof FilePickerClass?.implementation === "function",
+        formDataExtended: typeof FormDataExtendedClass === "function",
+        v14NamespacedApis: {
+            filePicker: typeof FilePickerClass === "function",
+            filePickerImplementation: typeof FilePickerClass?.implementation === "function",
+            formDataExtended: typeof FormDataExtendedClass === "function"
+        },
+        configureCursors: typeof game.configureCursors === "function",
+        registerMouseMoveHandler: typeof canvas?.registerMouseMoveHandler === "function",
+        canvasControlsCursors: !!canvas?.controls?.cursors,
+        sceneLevelInfo: getSceneLevelInfo(scene)
+    };
+}
+
+function validateV14RuntimeForDiagnostics() {
+    const runtimeChecks = collectV14RuntimeChecks();
+    return {
+        createsDocuments: false,
+        runtimeChecks,
+        sceneLevelInfo: runtimeChecks.sceneLevelInfo,
+        validation: validateV14RuntimeSnapshot(runtimeChecks)
+    };
 }
 
 async function loadImageForDiagnostics(src, timeoutMs) {
@@ -342,95 +573,228 @@ async function validateCursorAssetsForDiagnostics(args = {}) {
     };
 }
 
+function getClientDiagnosticsSnapshot({ getDebugState } = {}) {
+    const settingsSnapshot = collectSettingsSnapshot();
+    const scene = getActiveScene();
+    return jsonSafeClone({
+        user: {
+            id: game.user?.id ?? null,
+            name: game.user?.name ?? null,
+            isGM: !!game.user?.isGM,
+            active: !!game.user?.active,
+            showCursorPermission: getShowCursorPermissionState(game.user)
+        },
+        scene: scene
+            ? {
+                id: scene.id ?? null,
+                name: scene.name ?? null,
+                active: !!scene.active
+            }
+            : null,
+        runtime: {
+            foundryVersion: game.version ?? null,
+            canvasReady: !!canvas?.ready,
+            worldId: game.world?.id ?? null,
+            systemId: game.system?.id ?? null
+        },
+        settings: getCursorControlSettings(settingsSnapshot),
+        moduleState: jsonSafeClone(getDebugState?.() ?? null, { maxDepth: 4 })
+    }, {
+        maxDepth: 5,
+        maxStringLength: 1000,
+        maxArrayLength: 50
+    });
+}
+
+function installDiagnosticsSocketResponder({ getDebugState } = {}) {
+    if (diagnosticsSocketResponderInstalled || !game.socket?.on || !game.socket?.emit) return;
+    diagnosticsSocketResponderInstalled = true;
+
+    game.socket.on(SOCKET_EVENT, data => {
+        if (data?.type !== CLIENT_DIAGNOSTICS_REQUEST) return;
+        if (!data.requestId || data.requesterId === game.user?.id) return;
+
+        const requester = game.users?.get?.(data.requesterId);
+        const gate = getDiagnosticsGate();
+        if (!requester?.isGM || !gate.debugLogging || !gate.enableMcpDiagnostics) return;
+
+        game.socket.emit(SOCKET_EVENT, {
+            type: CLIENT_DIAGNOSTICS_RESPONSE,
+            requestId: data.requestId,
+            responderId: game.user?.id ?? null,
+            snapshot: getClientDiagnosticsSnapshot({ getDebugState })
+        });
+    });
+}
+
+async function collectClientDiagnosticsForDiagnostics(args = {}, { getDebugState } = {}) {
+    const timeoutMs = getClientDiagnosticsTimeoutMs(args);
+    const includeSelf = args.includeSelf !== false;
+    const requestId = `diag-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const responses = new Map();
+
+    if (includeSelf) {
+        responses.set(game.user?.id ?? "self", getClientDiagnosticsSnapshot({ getDebugState }));
+    }
+
+    if (!game.socket?.on || !game.socket?.off || !game.socket?.emit) {
+        return {
+            socketChannel: SOCKET_EVENT,
+            requestId,
+            timeoutMs,
+            clients: [...responses.values()],
+            skipped: true,
+            reason: "game.socket is unavailable."
+        };
+    }
+
+    await new Promise(resolve => {
+        const onResponse = data => {
+            if (data?.type !== CLIENT_DIAGNOSTICS_RESPONSE) return;
+            if (data.requestId !== requestId) return;
+            responses.set(data.responderId ?? `unknown-${responses.size}`, data.snapshot ?? {});
+        };
+
+        const timer = setTimeout(() => {
+            game.socket.off(SOCKET_EVENT, onResponse);
+            resolve();
+        }, timeoutMs);
+
+        game.socket.on(SOCKET_EVENT, onResponse);
+        game.socket.emit(SOCKET_EVENT, {
+            type: CLIENT_DIAGNOSTICS_REQUEST,
+            requestId,
+            requesterId: game.user?.id ?? null
+        });
+
+        if (timeoutMs === 0) {
+            clearTimeout(timer);
+            game.socket.off(SOCKET_EVENT, onResponse);
+            resolve();
+        }
+    });
+
+    return {
+        socketChannel: SOCKET_EVENT,
+        requestId,
+        timeoutMs,
+        clients: [...responses.values()],
+        clientCount: responses.size
+    };
+}
+
+function buildStatusPayload({ getDebugState } = {}) {
+    const settingsSnapshot = collectSettingsSnapshot();
+    const profileStatus = collectProfileStatus(settingsSnapshot);
+    const availability = getDiagnosticsGate();
+    const mutationAvailability = getMutationAvailability({});
+    const actionMetadata = createDiagnosticActionManifest();
+    const debugState = getDebugState?.() ?? null;
+
+    return {
+        module: summarizeModule(MODULE_ID),
+        diagnostics: {
+            version: DIAGNOSTICS_API_VERSION,
+            available: availability.available,
+            gates: availability.gates,
+            availableActions: [...DIAGNOSTIC_ACTION_NAMES],
+            readOnlyActions: [...READ_ONLY_DIAGNOSTIC_ACTION_NAMES],
+            mutatingActions: [...MUTATING_DIAGNOSTIC_ACTION_NAMES],
+            actionMetadata,
+            bridge: "call-module-debug-action",
+            fixturePrefix: FIXTURE_PREFIX,
+            fixtureFlag: FIXTURE_FLAG,
+            mutation: {
+                confirmMutationRequired: true,
+                setting: "enableMcpDiagnostics",
+                gates: mutationAvailability.gates
+            },
+            refresh: {
+                moduleAction: "refreshClient",
+                bridgeTool: "reload-foundry-client",
+                gatedByDiagnostics: true
+            },
+            allowlisted: true,
+            arbitraryEval: false,
+            arbitraryPropertyWalking: false,
+            createsDocumentsByDefault: false
+        },
+        runtime: summarizeRuntime(),
+        settingsSnapshot,
+        settings: {
+            currentControls: getCursorControlSettings(settingsSnapshot),
+            legacyProfileStorage: profileStatus.legacySettings
+        },
+        worldData: getWorldDataCounts(),
+        fixtures: getFixtureStatus(),
+        publicApiKeys: Object.keys(game.modules.get(MODULE_ID)?.api ?? {}).sort(),
+        profileSnapshot: profileStatus.profileSnapshot,
+        legacySettings: profileStatus.legacySettings,
+        warnings: profileStatus.statusWarnings,
+        integrations: {
+            socketNamespace: SOCKET_EVENT,
+            foundryMcpBridge: summarizeModule("foundry-mcp-bridge"),
+            cursorSharingMode: tryGetSetting("cursor-sharing-mode"),
+            cursorBroadcastEnabled: isCursorBroadcastEnabled(),
+            cursorPrivateMode: isCursorPrivateMode(),
+            showCursorPermission: getShowCursorPermissionState(game.user),
+            cursorSharingPermissionBlocked: debugState?.cursorSharing?.permissionBlocked ?? null
+        },
+        debugState: jsonSafeClone(debugState, { maxDepth: 5 })
+    };
+}
+
 export function createDiagnostics({
     getDebugState,
     openAdvancedSettings,
     openCursorConfig
 } = {}) {
+    installDiagnosticsSocketResponder({ getDebugState });
+
     const actions = {
         getStatus(args = {}) {
-            return runGatedAction("getStatus", args, () => {
-                const settingsSnapshot = collectSettingsSnapshot();
-                const profileStatus = collectProfileStatus(settingsSnapshot);
-                return {
-                    apiVersion: DIAGNOSTICS_API_VERSION,
-                    module: summarizeModule(MODULE_ID),
-                    runtime: summarizeRuntime(),
-                    settingsSnapshot,
-                    settings: {
-                        currentControls: getCursorControlSettings(settingsSnapshot),
-                        legacyProfileStorage: profileStatus.legacySettings
-                    },
-                    profileSnapshot: profileStatus.profileSnapshot,
-                    legacySettings: profileStatus.legacySettings,
-                    warnings: profileStatus.statusWarnings,
-                    integrations: {
-                        socketNamespace: SOCKET_EVENT,
-                        foundryMcpBridge: summarizeModule("foundry-mcp-bridge"),
-                        cursorSharingMode: tryGetSetting("cursor-sharing-mode"),
-                        cursorBroadcastEnabled: isCursorBroadcastEnabled(),
-                        cursorPrivateMode: isCursorPrivateMode()
-                    },
-                    diagnostics: {
-                        actionMetadata: createDiagnosticActionManifest(),
-                        availableActions: [...DIAGNOSTIC_ACTION_NAMES],
-                        allowlisted: true,
-                        arbitraryEval: false,
-                        arbitraryPropertyWalking: false,
-                        createsDocumentsByDefault: false
-                    },
-                    debugState: jsonSafeClone(getDebugState?.() ?? null, { maxDepth: 5 })
-                };
-            });
+            return runGatedAction("getStatus", args, () => buildStatusPayload({ getDebugState }));
         },
 
-        validateCursorConfig(args = {}) {
-            return runGatedAction("validateCursorConfig", args, () => {
-                const hasProvidedConfig = Object.prototype.hasOwnProperty.call(args, "config");
-                const config = hasProvidedConfig ? args.config : getUserCursorConfig(game.user);
+        validateSettings(args = {}) {
+            return runGatedAction("validateSettings", args, () => {
+                const settingsSnapshot = collectSettingsSnapshot();
                 return {
-                    source: hasProvidedConfig ? "args.config" : "currentUser",
-                    validation: validateCursorConfig(config),
+                    settingsSnapshot,
+                    validation: validateSettingsSnapshot(settingsSnapshot),
                     createsDocuments: false
                 };
             });
         },
 
-        validateCursorAssets(args = {}) {
-            return runGatedActionAsync("validateCursorAssets", args, () => validateCursorAssetsForDiagnostics(args));
+        validateAssets(args = {}) {
+            return runGatedActionAsync("validateAssets", args, () => validateCursorAssetsForDiagnostics(args));
         },
 
-        openWindow(args = {}) {
-            return runGatedAction("openWindow", args, () => {
-                const windowName = String(args.window ?? "advanced");
-                if (windowName === "advanced") {
-                    openAdvancedSettings?.();
-                    return { opened: "advanced", createsDocuments: false };
-                }
-                if (windowName === "cursor") {
-                    openCursorConfig?.({ targetUserId: args.targetUserId });
-                    return { opened: "cursor", createsDocuments: false };
-                }
-                return {
-                    opened: null,
-                    createsDocuments: false,
-                    error: "Unknown diagnostics window.",
-                    allowedWindows: ["advanced", "cursor"]
-                };
-            });
+        validateV14Runtime(args = {}) {
+            return runGatedAction("validateV14Runtime", args, () => validateV14RuntimeForDiagnostics());
+        },
+
+        collectClientDiagnostics(args = {}) {
+            return runGatedActionAsync("collectClientDiagnostics", args, () => (
+                collectClientDiagnosticsForDiagnostics(args, { getDebugState })
+            ));
         },
 
         runSmokeTests(args = {}) {
             return runGatedActionAsync("runSmokeTests", args, async () => {
+                const beforeCounts = getWorldDataCounts();
                 const settingsSnapshot = collectSettingsSnapshot();
                 const settingsValidation = validateSettingsSnapshot(settingsSnapshot);
                 const currentConfig = getUserCursorConfig(game.user);
                 const cursorValidation = validateCursorConfig(currentConfig);
                 const assetValidation = await validateCursorAssetsForDiagnostics(args);
+                const v14RuntimeValidation = validateV14RuntimeForDiagnostics();
                 const actionNames = Object.keys(actions).sort();
                 const expectedActions = [...DIAGNOSTIC_ACTION_NAMES].sort();
                 const debugState = getDebugState?.() ?? null;
                 const cursorSharing = debugState?.cursorSharing ?? null;
+                const metadata = createDiagnosticActionManifest();
 
                 const checks = [
                     makeSmokeCheck(
@@ -439,9 +803,14 @@ export function createDiagnostics({
                         { actionNames, expectedActions }
                     ),
                     makeSmokeCheck(
-                        "diagnostics actions do not create documents",
-                        Object.values(createDiagnosticActionManifest()).every(metadata => metadata.createsDocuments === false),
-                        { actionMetadata: createDiagnosticActionManifest() }
+                        "read-only diagnostics actions do not create documents",
+                        READ_ONLY_DIAGNOSTIC_ACTION_NAMES.every(name => metadata[name]?.createsDocuments === false),
+                        { readOnlyActions: READ_ONLY_DIAGNOSTIC_ACTION_NAMES }
+                    ),
+                    makeSmokeCheck(
+                        "mutating diagnostics actions are marked as creating fixtures",
+                        MUTATING_DIAGNOSTIC_ACTION_NAMES.every(name => metadata[name]?.createsDocuments === true),
+                        { mutatingActions: MUTATING_DIAGNOSTIC_ACTION_NAMES }
                     ),
                     makeSmokeCheck("settings snapshot validates", settingsValidation),
                     makeSmokeCheck("current cursor profile validates", cursorValidation),
@@ -449,6 +818,14 @@ export function createDiagnostics({
                         "active cursor assets load",
                         assetValidation.summary.activeFailures === 0,
                         { activeFailures: assetValidation.activeFailures }
+                    ),
+                    makeSmokeCheck(
+                        "V14 runtime contracts validate",
+                        v14RuntimeValidation.validation,
+                        {
+                            runtimeChecks: v14RuntimeValidation.runtimeChecks,
+                            sceneLevelInfo: v14RuntimeValidation.sceneLevelInfo
+                        }
                     ),
                     makeSmokeCheck(
                         "debug state is JSON-safe",
@@ -497,8 +874,19 @@ export function createDiagnostics({
                     checks.push(makeSmokeWarning("canvas is not ready", { canvasReady: false }));
                 }
 
+                const afterCounts = getWorldDataCounts();
+                checks.push(makeSmokeCheck(
+                    "smoke tests do not change world document counts",
+                    JSON.stringify(beforeCounts) === JSON.stringify(afterCounts),
+                    { beforeCounts, afterCounts }
+                ));
+
                 return {
                     smokeTestArgs: jsonSafeClone(args),
+                    worldCounts: {
+                        before: beforeCounts,
+                        after: afterCounts
+                    },
                     cursorAssetValidation: {
                         summary: assetValidation.summary,
                         createsDocuments: assetValidation.createsDocuments
@@ -506,12 +894,71 @@ export function createDiagnostics({
                     report: buildSmokeReport(checks)
                 };
             });
+        },
+
+        refreshClient(args = {}) {
+            return runGatedAction("refreshClient", args, () => {
+                const delayMs = getRefreshDelayMs(args);
+                window.setTimeout(() => window.location.reload(), delayMs);
+                return {
+                    initiated: true,
+                    delayMs,
+                    createsDocuments: false
+                };
+            });
+        },
+
+        validateCursorConfig(args = {}) {
+            return runGatedAction("validateCursorConfig", args, () => {
+                const hasProvidedConfig = Object.prototype.hasOwnProperty.call(args, "config");
+                const config = hasProvidedConfig ? args.config : getUserCursorConfig(game.user);
+                return {
+                    source: hasProvidedConfig ? "args.config" : "currentUser",
+                    validation: validateCursorConfig(config),
+                    createsDocuments: false
+                };
+            });
+        },
+
+        validateCursorAssets(args = {}) {
+            return runGatedActionAsync("validateCursorAssets", args, () => validateCursorAssetsForDiagnostics(args));
+        },
+
+        openWindow(args = {}) {
+            return runGatedAction("openWindow", args, () => {
+                const windowName = String(args.window ?? "advanced");
+                if (windowName === "advanced") {
+                    openAdvancedSettings?.();
+                    return { opened: "advanced", createsDocuments: false };
+                }
+                if (windowName === "cursor") {
+                    openCursorConfig?.({ targetUserId: args.targetUserId });
+                    return { opened: "cursor", createsDocuments: false };
+                }
+                return {
+                    opened: null,
+                    createsDocuments: false,
+                    error: "Unknown diagnostics window.",
+                    allowedWindows: ["advanced", "cursor"]
+                };
+            });
+        },
+
+        runAutomation(args = {}) {
+            return runGatedMutationActionAsync("runAutomation", args, () => runDiagnosticsAutomation(args));
+        },
+
+        cleanupFixtures(args = {}) {
+            return runGatedMutationActionAsync("cleanupFixtures", args, () => cleanupAutomationFixtures(args));
         }
     };
 
     return Object.freeze({
         version: DIAGNOSTICS_API_VERSION,
+        socketChannel: SOCKET_EVENT,
         getGate: () => getDiagnosticsGate(),
+        getAvailability: () => getDiagnosticsGate(),
+        getMutationAvailability,
         actionMetadata: createDiagnosticActionManifest(),
         actions
     });

@@ -2,10 +2,12 @@ import { readFile } from 'node:fs/promises';
 
 import {
     DIAGNOSTIC_ACTION_METADATA,
+    READ_ONLY_DIAGNOSTIC_ACTION_NAMES,
     buildSmokeReport,
     makeSmokeCheck,
     validateCursorConfig
 } from '../scripts/diagnostics-core.js';
+import { canBroadcastVisibleCursor } from '../scripts/foundry-permissions.js';
 
 async function readFixture(name) {
     const text = await readFile(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
@@ -19,9 +21,10 @@ const report = buildSmokeReport([
     makeSmokeCheck('valid cursor profile fixture parses and validates', validateCursorConfig(validFixture)),
     makeSmokeCheck('bad cursor profile fixture is rejected', !validateCursorConfig(invalidFixture).valid),
     makeSmokeCheck(
-        'diagnostics metadata declares no document creation',
-        Object.values(DIAGNOSTIC_ACTION_METADATA).every(metadata => metadata.createsDocuments === false)
-    )
+        'read-only diagnostics metadata declares no document creation',
+        READ_ONLY_DIAGNOSTIC_ACTION_NAMES.every(name => DIAGNOSTIC_ACTION_METADATA[name]?.createsDocuments === false)
+    ),
+    makeSmokeCheck('SHOW_CURSOR helper defaults to allowed without Foundry permission API', canBroadcastVisibleCursor({}))
 ]);
 
 console.log(JSON.stringify(report, null, 2));

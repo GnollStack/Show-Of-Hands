@@ -29,6 +29,10 @@ export class AdvancedSettingsApp extends foundry.applications.api.HandlebarsAppl
             handler: AdvancedSettingsApp.#onSubmit,
             closeOnSubmit: true
         },
+        actions: {
+            copyDiagnostics: AdvancedSettingsApp.#onCopyDiagnostics,
+            refreshDiagnostics: AdvancedSettingsApp.#onRefreshDiagnostics
+        },
         window: {
             title: "Target The Beastie Advanced Settings",
             icon: "fas fa-sliders",
@@ -70,34 +74,25 @@ export class AdvancedSettingsApp extends foundry.applications.api.HandlebarsAppl
         };
     }
 
-    _onRender(context, options) {
-        super._onRender(context, options);
-        const copyButton = this.element.querySelector('.ttb-copy-diagnostics');
-        if (copyButton) {
-            copyButton.addEventListener('click', async (event) => {
-                event.preventDefault();
-                const diagnostics = this.element.querySelector('.ttb-diagnostics-output')?.value ?? getDiagnosticsText();
-                try {
-                    await navigator.clipboard.writeText(diagnostics);
-                    ui.notifications.info("Diagnostics copied.");
-                } catch {
-                    ui.notifications.warn("Could not copy diagnostics from this browser context.");
-                }
-            });
-        }
-
-        const refreshButton = this.element.querySelector('.ttb-refresh-diagnostics');
-        if (refreshButton) {
-            refreshButton.addEventListener('click', (event) => {
-                event.preventDefault();
-                const output = this.element.querySelector('.ttb-diagnostics-output');
-                if (output) output.value = getDiagnosticsText();
-            });
+    static async #onCopyDiagnostics(event) {
+        event.preventDefault();
+        const diagnostics = this.element.querySelector('.ttb-diagnostics-output')?.value ?? getDiagnosticsText();
+        try {
+            await navigator.clipboard.writeText(diagnostics);
+            ui.notifications.info("Diagnostics copied.");
+        } catch {
+            ui.notifications.warn("Could not copy diagnostics from this browser context.");
         }
     }
 
+    static #onRefreshDiagnostics(event) {
+        event.preventDefault();
+        const output = this.element.querySelector('.ttb-diagnostics-output');
+        if (output) output.value = getDiagnosticsText();
+    }
+
     static async #onSubmit(event, form, formData) {
-        const data = new FormData(form);
+        const data = formData ?? new foundry.applications.ux.FormDataExtended(form);
         const opacity = Number.parseFloat(data.get("sharedCursorOpacity"));
         const hiddenUsers = {};
 

@@ -2,8 +2,8 @@
 
 A Foundry VTT module for quick token targeting, custom cursors, and multiplayer cursor sharing.
 
-**Version:** 13.4.1  
-**Compatibility:** Foundry VTT v13+ (verified on v13.315)  
+**Version:** 14.0.0
+**Compatibility:** Foundry VTT v14+ (verified on v14.363)
 **Author:** GnollStack
 
 ## Features
@@ -70,6 +70,7 @@ See other players' cursors on the canvas in real-time. Each shared cursor appear
 - **Scene-aware** so only cursors from players on the same scene are shown
 - **Late-start image requests** so cursor images are refreshed when sharing is enabled after other players are already connected
 - **Cursor Sharing Mode** can share your cursor, receive only, or fully hide your cursor from others
+- **Foundry permission aware** so module sharing respects the core **Display Mouse Cursor** permission
 - **Per-player visibility controls** let you hide specific shared cursors locally
 - **Auto-fade** after `5` seconds of inactivity
 
@@ -161,14 +162,34 @@ game.modules.get("target-the-beastie").api.getDebugState()
 TargetTheBeastie.getDebugState()
 ```
 
-For MCP-based diagnostics, enable **Debug Mode** as a GM and use the allowlisted diagnostics API:
+For MCP Diagnostics through Foundry MCP Bridge, enable **Debug Mode** as a GM and turn on **Enable MCP Diagnostics**. These controls are advanced GM-only troubleshooting tools and can stay disabled during normal play.
 
 ```js
 game.modules.get("target-the-beastie").api.diagnostics.actions.getStatus()
+game.modules.get("target-the-beastie").api.diagnostics.actions.validateSettings()
+game.modules.get("target-the-beastie").api.diagnostics.actions.validateAssets()
+game.modules.get("target-the-beastie").api.diagnostics.actions.validateV14Runtime()
+game.modules.get("target-the-beastie").api.diagnostics.actions.collectClientDiagnostics()
 game.modules.get("target-the-beastie").api.diagnostics.actions.validateCursorConfig()
 game.modules.get("target-the-beastie").api.diagnostics.actions.validateCursorAssets()
 game.modules.get("target-the-beastie").api.diagnostics.actions.runSmokeTests()
+game.modules.get("target-the-beastie").api.diagnostics.actions.refreshClient({ delayMs: 250 })
 ```
+
+The normal hard refresh path from MCP is the bridge-level `reload-foundry-client` tool. The module-level `refreshClient({ delayMs })` action is also available so this module's own diagnostics gate can be tested.
+
+`validateV14Runtime()` is read-only and checks the V14 ApplicationV2, DialogV2, cursor, FilePicker, FormDataExtended, and canvas cursor contracts used by the module. It also reports Scene Levels observations when Foundry exposes them, but does not change marquee targeting behavior.
+
+A diagnostic warning that legacy `cursor-states` differs from `flags.target-the-beastie.cursorConfig` is expected after per-user profiles exist. The user flag profile is canonical.
+
+Mutating fixture checks are paired with **Enable MCP Diagnostics** and still require an explicit `confirmMutation: true` argument:
+
+```js
+game.modules.get("target-the-beastie").api.diagnostics.actions.runAutomation({ confirmMutation: true })
+game.modules.get("target-the-beastie").api.diagnostics.actions.cleanupFixtures({ confirmMutation: true })
+```
+
+Automation creates temporary active-scene token fixtures named with the `TTB-MCP-FIXTURE` prefix and flagged with `flags.target-the-beastie.mcpAutomationFixture`. Cleanup only deletes documents that have both the fixture prefix and the module-owned fixture flag. Keep MCP diagnostics disabled during normal play and use automation only in dedicated test worlds.
 
 ## Performance Notes
 
@@ -232,9 +253,21 @@ target-the-beastie/
     marquee-select.js      Marquee box select and middle-mouse handler
     cursor-overlay.js      PIXI rendering of shared remote cursors
     cursor-sharing.js      Socket communication for cursor position and image sharing
+    diagnostics.js         Foundry-facing diagnostics actions
+    diagnostics-core.js    Pure diagnostics validation and JSON-safe helpers
+    mcp-diagnostics-automation.js Temporary MCP diagnostics fixture automation
   templates/
     cursor-config.html     Handlebars template for the configuration UI
     advanced-settings.html Handlebars template for advanced settings
+  styles/
+    cursor-config.css      Settings app styles
+  tests/
+    diagnostics-core.test.mjs
+    local-smoke.mjs
+    syntax-check.mjs
+    fixtures/
+      cursor-profile.valid.json
+      cursor-profile.invalid.json
 ```
 
 ## Troubleshooting
@@ -242,6 +275,7 @@ target-the-beastie/
 **Cursors not appearing for other players:**
 
 - Make sure the player whose cursor is missing has **Cursor Sharing Mode** set to **Share My Cursor**
+- Make sure Foundry's **Display Mouse Cursor** permission is enabled for that player role
 - Make sure that player is not using **Private** mode
 - Verify both players are on the same scene
 - Switch **Cursor Sharing Mode** back to **Share My Cursor** to rebroadcast that player's cursor image

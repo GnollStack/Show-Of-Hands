@@ -27,11 +27,11 @@
                 <option value="{{id}}">{{name}}</option>
                 {{/each}}
             </select>
-            <button type="button" class="ttb-copy-profile-btn" title="Copy selected player's cursor profile into the currently selected player">
+            <button type="button" class="ttb-copy-profile-btn" data-action="copyProfile" title="Copy selected player's cursor profile into the currently selected player">
                 <i class="fas fa-copy"></i> Copy Profile
             </button>
             {{/if}}
-            <button type="button" class="ttb-reset-profile-btn" title="Reset this cursor profile to defaults">
+            <button type="button" class="ttb-reset-profile-btn" data-action="resetProfile" title="Reset this cursor profile to defaults">
                 <i class="fas fa-undo"></i> Reset Profile
             </button>
         </div>
@@ -39,7 +39,7 @@
 
     <nav class="ttb-tabs">
         {{#each states}}
-        <button type="button" class="ttb-tab-btn {{#if @first}}active{{/if}}" data-tab="{{key}}">
+        <button type="button" class="ttb-tab-btn {{#if @first}}active{{/if}}" data-action="selectCursorTab" data-tab="{{key}}">
             {{tabLabel}}
         </button>
         {{/each}}
@@ -86,14 +86,14 @@
                 <label>Cursor Image</label>
                 <div class="ttb-image-row">
                     <input type="text" name="states.{{key}}.image" value="{{image}}" placeholder="Path to cursor image...">
-                    <button type="button" class="ttb-browse-btn" title="Browse for image">
+                    <button type="button" class="ttb-browse-btn" data-action="browseCursorImage" title="Browse for image">
                         <i class="fas fa-file-import"></i>
                     </button>
-                    <button type="button" class="ttb-aom-btn" title="Use AoM default cursor">
+                    <button type="button" class="ttb-aom-btn" data-action="useAomDefault" title="Use AoM default cursor">
                         <i class="fas fa-undo"></i>
                     </button>
                     {{#unless isDefault}}
-                    <button type="button" class="ttb-clear-btn" title="Use Foundry native cursor for this state">
+                    <button type="button" class="ttb-clear-btn" data-action="clearCursorImage" title="Use Foundry native cursor for this state">
                         <i class="fas fa-xmark"></i>
                     </button>
                     {{/unless}}
@@ -115,10 +115,10 @@
                 {{#if isDefault}}
                 <div class="ttb-name-preset-row">
                     <span class="ttb-preset-label">Overlay Name:</span>
-                    <button type="button" class="ttb-name-preset" data-preset="bottom-center">Bottom Center</button>
-                    <button type="button" class="ttb-name-preset" data-preset="bottom-right">Bottom Right</button>
-                    <button type="button" class="ttb-name-preset" data-preset="top-center">Top Center</button>
-                    <button type="button" class="ttb-name-preset" data-preset="right">Right</button>
+                    <button type="button" class="ttb-name-preset" data-action="setNamePreset" data-preset="bottom-center">Bottom Center</button>
+                    <button type="button" class="ttb-name-preset" data-action="setNamePreset" data-preset="bottom-right">Bottom Right</button>
+                    <button type="button" class="ttb-name-preset" data-action="setNamePreset" data-preset="top-center">Top Center</button>
+                    <button type="button" class="ttb-name-preset" data-action="setNamePreset" data-preset="right">Right</button>
                 </div>
                 <p class="ttb-notes ttb-tip">
                     Drag this label to position the module's shared overlay name. Foundry's built-in cursor name is controlled separately in the module settings.
@@ -183,7 +183,7 @@
         <button type="submit" name="submit">
             <i class="fas fa-check"></i> Save
         </button>
-        <button type="button" name="reset">
+        <button type="button" name="reset" data-action="resetAll">
             <i class="fas fa-undo"></i> Reset All
         </button>
     </footer>
