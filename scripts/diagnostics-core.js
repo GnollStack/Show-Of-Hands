@@ -8,6 +8,36 @@ export const DIAGNOSTIC_ACTION_METADATA = Object.freeze({
         createsDocuments: false,
         sideEffects: "none"
     }),
+    validateSettings: Object.freeze({
+        description: "Validate registered Target The Beastie settings without saving or creating documents.",
+        createsDocuments: false,
+        sideEffects: "none"
+    }),
+    validateAssets: Object.freeze({
+        description: "Run module asset validation without saving or creating documents.",
+        createsDocuments: false,
+        sideEffects: "client-image-load"
+    }),
+    validateV14Runtime: Object.freeze({
+        description: "Validate the expected Foundry V14 runtime contracts without saving or creating documents.",
+        createsDocuments: false,
+        sideEffects: "none"
+    }),
+    collectClientDiagnostics: Object.freeze({
+        description: "Return a compact client diagnostics snapshot through the module diagnostics API.",
+        createsDocuments: false,
+        sideEffects: "none"
+    }),
+    runSmokeTests: Object.freeze({
+        description: "Run structured non-destructive diagnostics smoke checks.",
+        createsDocuments: false,
+        sideEffects: "none"
+    }),
+    refreshClient: Object.freeze({
+        description: "Schedule a gated hard refresh of this Foundry client.",
+        createsDocuments: false,
+        sideEffects: "reloads-client"
+    }),
     validateCursorConfig: Object.freeze({
         description: "Validate a cursor profile object without saving or creating documents.",
         createsDocuments: false,
@@ -23,14 +53,37 @@ export const DIAGNOSTIC_ACTION_METADATA = Object.freeze({
         createsDocuments: false,
         sideEffects: "opens-ui"
     }),
-    runSmokeTests: Object.freeze({
-        description: "Run structured non-destructive diagnostics smoke checks.",
-        createsDocuments: false,
-        sideEffects: "none"
+    runAutomation: Object.freeze({
+        description: "Run gated MCP Diagnostics Automation with temporary module-owned fixtures.",
+        createsDocuments: true,
+        sideEffects: "creates-temporary-fixtures"
+    }),
+    cleanupFixtures: Object.freeze({
+        description: "Delete only module-owned MCP diagnostics fixtures in the active scene.",
+        createsDocuments: true,
+        sideEffects: "deletes-temporary-fixtures"
     })
 });
 
 export const DIAGNOSTIC_ACTION_NAMES = Object.freeze(Object.keys(DIAGNOSTIC_ACTION_METADATA));
+
+export const READ_ONLY_DIAGNOSTIC_ACTION_NAMES = Object.freeze([
+    "getStatus",
+    "validateSettings",
+    "validateAssets",
+    "validateV14Runtime",
+    "collectClientDiagnostics",
+    "runSmokeTests",
+    "refreshClient",
+    "validateCursorConfig",
+    "validateCursorAssets",
+    "openWindow"
+]);
+
+export const MUTATING_DIAGNOSTIC_ACTION_NAMES = Object.freeze([
+    "runAutomation",
+    "cleanupFixtures"
+]);
 
 export const DIAGNOSTIC_SETTING_KEYS = Object.freeze([
     "use-aom-cursor",
@@ -56,6 +109,7 @@ export const DIAGNOSTIC_SETTING_KEYS = Object.freeze([
     "cursor-sharing-mode",
     "hidden-shared-cursor-users",
     "debug-mode",
+    "enableMcpDiagnostics",
     "settings-version"
 ]);
 
@@ -412,7 +466,95 @@ export function validateSettingsSnapshot(snapshot) {
         warnings.push("hidden-shared-cursor-users is not an object; legacy values are tolerated but should migrate on save.");
     }
 
+    for (const key of ["enableMcpDiagnostics"]) {
+        if (Object.prototype.hasOwnProperty.call(snapshot, key) && typeof snapshot[key] !== "boolean") {
+            errors.push(`${key} must be a boolean.`);
+        }
+    }
+
     return { valid: errors.length === 0, errors, warnings };
+}
+
+export function validateV14RuntimeSnapshot(snapshot) {
+    const errors = [];
+    const warnings = [];
+
+    if (!isPlainObject(snapshot)) {
+        return {
+            valid: false,
+            errors: ["V14 runtime snapshot must be an object."],
+            warnings,
+            summary: {
+                foundryGeneration: null,
+                canvasReady: false,
+                checkedContracts: 0,
+                availableContracts: 0
+            }
+        };
+    }
+
+    const runtimeChecks = isPlainObject(snapshot.runtimeChecks) ? snapshot.runtimeChecks : snapshot;
+    const foundryGeneration = Number(runtimeChecks.foundryGeneration ?? runtimeChecks.generation);
+    const canvasReady = runtimeChecks.canvasReady === true;
+    const requiredContracts = Object.freeze([
+        ["applicationV2", "foundry.applications.api.ApplicationV2"],
+        ["handlebarsApplicationMixin", "foundry.applications.api.HandlebarsApplicationMixin"],
+        ["dialogV2", "foundry.applications.api.DialogV2.confirm"],
+        ["filePickerImplementation", "foundry.applications.apps.FilePicker.implementation"],
+        ["formDataExtended", "foundry.applications.ux.FormDataExtended"],
+        ["configureCursors", "game.configureCursors"],
+        ["registerMouseMoveHandler", "canvas.registerMouseMoveHandler"]
+    ]);
+
+    if (!Number.isFinite(foundryGeneration)) {
+        errors.push("Foundry generation could not be determined.");
+    } else if (foundryGeneration !== 14) {
+        errors.push(`Expected Foundry generation 14; found ${foundryGeneration}.`);
+    }
+
+    let availableContracts = 0;
+    for (const [key, label] of requiredContracts) {
+        if (runtimeChecks[key] === true) {
+            availableContracts += 1;
+        } else {
+            errors.push(`${label} is unavailable.`);
+        }
+    }
+
+    if (canvasReady) {
+        if (runtimeChecks.canvasControlsCursors === true) {
+            availableContracts += 1;
+        } else {
+            errors.push("canvas.controls.cursors is unavailable while canvas is ready.");
+        }
+    } else {
+        warnings.push("Canvas is not ready; canvas.controls.cursors was observed but not required.");
+    }
+
+    const sceneLevelInfo = isPlainObject(runtimeChecks.sceneLevelInfo)
+        ? runtimeChecks.sceneLevelInfo
+        : (isPlainObject(snapshot.sceneLevelInfo) ? snapshot.sceneLevelInfo : null);
+    if (sceneLevelInfo?.error) {
+        warnings.push(`Scene level observation failed: ${sceneLevelInfo.error}`);
+    }
+
+    return {
+        valid: errors.length === 0,
+        errors,
+        warnings,
+        summary: {
+            foundryGeneration: Number.isFinite(foundryGeneration) ? foundryGeneration : null,
+            canvasReady,
+            checkedContracts: requiredContracts.length + (canvasReady ? 1 : 0),
+            availableContracts,
+            hasSceneLevelInfo: !!sceneLevelInfo,
+            hasAvailableLevels: sceneLevelInfo?.hasAvailableLevels === true,
+            availableLevelCount: Number.isFinite(sceneLevelInfo?.availableLevelCount)
+                ? sceneLevelInfo.availableLevelCount
+                : null,
+            hasFirstLevel: sceneLevelInfo?.hasFirstLevel === true
+        }
+    };
 }
 
 export function makeSmokeCheck(name, validation, details = {}) {

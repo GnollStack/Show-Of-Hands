@@ -5,18 +5,28 @@ import { test } from 'node:test';
 import {
     DIAGNOSTIC_ACTION_METADATA,
     DIAGNOSTIC_ACTION_NAMES,
+    DIAGNOSTIC_SETTING_KEYS,
+    MUTATING_DIAGNOSTIC_ACTION_NAMES,
+    READ_ONLY_DIAGNOSTIC_ACTION_NAMES,
     buildSmokeReport,
     collectCursorAssetCandidates,
     compareCursorStates,
     jsonSafeClone,
     makeSmokeCheck,
     validateCursorConfig,
+    validateV14RuntimeSnapshot,
     validateSettingsSnapshot
 } from '../scripts/diagnostics-core.js';
+import { canBroadcastVisibleCursor, getShowCursorPermissionState } from '../scripts/foundry-permissions.js';
+import { getCursorSharingDebugState } from '../scripts/cursor-sharing.js';
 
 async function readFixture(name) {
     const text = await readFile(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
     return JSON.parse(text);
+}
+
+async function readProjectFile(path) {
+    return readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 }
 
 test('valid cursor profile fixture passes validation', async () => {
@@ -38,17 +48,85 @@ test('bad cursor profile fixture reports errors without mutation', async () => {
     assert.equal(JSON.stringify(fixture), before);
 });
 
-test('diagnostic actions are allowlisted and document-free by default', () => {
+test('diagnostic actions are allowlisted and mutation metadata is explicit', () => {
     assert.deepEqual([...DIAGNOSTIC_ACTION_NAMES].sort(), [
+        'cleanupFixtures',
+        'collectClientDiagnostics',
         'getStatus',
         'openWindow',
+        'refreshClient',
+        'runAutomation',
         'runSmokeTests',
+        'validateAssets',
         'validateCursorAssets',
-        'validateCursorConfig'
+        'validateCursorConfig',
+        'validateSettings',
+        'validateV14Runtime'
     ]);
 
-    for (const metadata of Object.values(DIAGNOSTIC_ACTION_METADATA)) {
-        assert.equal(metadata.createsDocuments, false);
+    for (const name of READ_ONLY_DIAGNOSTIC_ACTION_NAMES) {
+        assert.equal(DIAGNOSTIC_ACTION_METADATA[name].createsDocuments, false);
+    }
+
+    for (const name of MUTATING_DIAGNOSTIC_ACTION_NAMES) {
+        assert.equal(DIAGNOSTIC_ACTION_METADATA[name].createsDocuments, true);
+    }
+});
+
+test('diagnostics snapshot exposes a single MCP setting', () => {
+    assert.deepEqual(
+        DIAGNOSTIC_SETTING_KEYS.filter(key => key.toLowerCase().includes('mcp')),
+        ['enableMcpDiagnostics']
+    );
+});
+
+test('SHOW_CURSOR permission helper defaults to allowed when the API is unavailable', () => {
+    assert.equal(canBroadcastVisibleCursor({ id: 'user-without-api' }), true);
+    assert.deepEqual(getShowCursorPermissionState({ id: 'user-without-api' }), {
+        permission: 'SHOW_CURSOR',
+        available: false,
+        allowed: true,
+        error: null
+    });
+});
+
+test('SHOW_CURSOR permission helper blocks when Foundry denies the permission', () => {
+    const user = {
+        hasPermission(permission) {
+            assert.equal(permission, 'SHOW_CURSOR');
+            return false;
+        }
+    };
+
+    assert.equal(canBroadcastVisibleCursor(user), false);
+    assert.deepEqual(getShowCursorPermissionState(user), {
+        permission: 'SHOW_CURSOR',
+        available: true,
+        allowed: false,
+        error: null
+    });
+});
+
+test('cursor sharing debug state reports SHOW_CURSOR permission blocking', () => {
+    const priorGame = globalThis.game;
+    globalThis.game = {
+        user: {
+            hasPermission: () => false
+        },
+        settings: {
+            get: () => ({})
+        }
+    };
+
+    try {
+        const state = getCursorSharingDebugState();
+        assert.equal(state.showCursorPermission.available, true);
+        assert.equal(state.showCursorPermission.allowed, false);
+        assert.equal(state.permissionBlocked, true);
+        assert.equal(state.visibleBroadcastAllowed, false);
+    } finally {
+        if (priorGame === undefined) delete globalThis.game;
+        else globalThis.game = priorGame;
     }
 });
 
@@ -115,12 +193,80 @@ test('settings snapshot validation catches invalid choices', () => {
         'cursor-sharing-mode': 'share',
         'hidden-shared-cursor-users': {},
         'debug-mode': 'off',
+        enableMcpDiagnostics: false,
         'settings-version': 4
     };
 
     const result = validateSettingsSnapshot(snapshot);
     assert.equal(result.valid, false);
     assert.ok(result.errors.some(error => error.includes('middle-mouse-actions')));
+});
+
+test('V14 runtime snapshot validation requires explicit contracts', () => {
+    const validSnapshot = {
+        foundryGeneration: 14,
+        canvasReady: true,
+        applicationV2: true,
+        handlebarsApplicationMixin: true,
+        dialogV2: true,
+        filePickerImplementation: true,
+        formDataExtended: true,
+        configureCursors: true,
+        registerMouseMoveHandler: true,
+        canvasControlsCursors: true,
+        sceneLevelInfo: {
+            hasAvailableLevels: true,
+            availableLevelCount: 2,
+            availableLevelIds: ['ground', 'balcony'],
+            hasFirstLevel: true,
+            firstLevelId: 'ground'
+        }
+    };
+
+    const valid = validateV14RuntimeSnapshot(validSnapshot);
+    assert.equal(valid.valid, true);
+    assert.deepEqual(valid.errors, []);
+    assert.equal(valid.summary.checkedContracts, 8);
+
+    const invalid = validateV14RuntimeSnapshot({
+        ...validSnapshot,
+        dialogV2: false,
+        filePickerImplementation: false,
+        formDataExtended: false,
+        canvasControlsCursors: false
+    });
+
+    assert.equal(invalid.valid, false);
+    assert.ok(invalid.errors.some(error => error.includes('DialogV2')));
+    assert.ok(invalid.errors.some(error => error.includes('FilePicker')));
+    assert.ok(invalid.errors.some(error => error.includes('FormDataExtended')));
+    assert.ok(invalid.errors.some(error => error.includes('canvas.controls.cursors')));
+});
+
+test('ApplicationV2 command actions are wired in templates and settings apps', async () => {
+    const cursorTemplate = await readProjectFile('templates/cursor-config.html');
+    const advancedTemplate = await readProjectFile('templates/advanced-settings.html');
+    const cursorApp = await readProjectFile('scripts/cursor-config-app.js');
+    const advancedApp = await readProjectFile('scripts/advanced-settings-app.js');
+
+    for (const action of [
+        'browseCursorImage',
+        'clearCursorImage',
+        'copyProfile',
+        'resetAll',
+        'resetProfile',
+        'selectCursorTab',
+        'setNamePreset',
+        'useAomDefault'
+    ]) {
+        assert.ok(cursorTemplate.includes(`data-action="${action}"`), `cursor template is missing ${action}`);
+        assert.ok(cursorApp.includes(`${action}: CursorConfigApp.#`), `cursor app is missing ${action} handler wiring`);
+    }
+
+    for (const action of ['copyDiagnostics', 'refreshDiagnostics']) {
+        assert.ok(advancedTemplate.includes(`data-action="${action}"`), `advanced template is missing ${action}`);
+        assert.ok(advancedApp.includes(`${action}: AdvancedSettingsApp.#`), `advanced app is missing ${action} handler wiring`);
+    }
 });
 
 test('smoke report uses pass/fail summary and never creates documents', () => {

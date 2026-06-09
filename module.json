@@ -1,10 +1,10 @@
 {
   "id": "target-the-beastie",
   "title": "Target The Beastie!",
-  "version": "13.4.2",
+  "version": "14.1.0",
   "compatibility": {
-    "minimum": "13",
-    "verified": "13.315"
+    "minimum": "14",
+    "verified": "14.363"
   },
   "description": "Target tokens with the mousewheel button. Hold and drag to marquee-select multiple tokens at once. Upload custom cursor images and configure different cursors for each interaction state (default, hover, targeting, panning).",
   "authors": [

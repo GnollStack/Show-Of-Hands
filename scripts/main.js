@@ -30,6 +30,7 @@ import { AdvancedSettingsApp } from './advanced-settings-app.js';
 import { initCursorOverlay, destroyCursorOverlay, updateOverlaySetting } from './cursor-overlay.js';
 import { startCursorSharing, stopCursorSharing, refreshSharedCursorImage, setCursorBroadcastEnabled, broadcastHiddenPing, syncHiddenRemoteCursors, getCursorSharingDebugState } from './cursor-sharing.js';
 import { createDiagnostics } from './diagnostics.js';
+import { getShowCursorPermissionState } from './foundry-permissions.js';
 
 debugLog("cursor", "main.js loaded, all imports resolved OK");
 
@@ -109,6 +110,7 @@ function getDebugState() {
         sceneId: canvas?.scene?.id ?? null,
         userId: game.user?.id ?? null,
         userName: game.user?.name ?? null,
+        showCursorPermission: getShowCursorPermissionState(game.user),
         middleMouseMode: getMiddleMouseActionMode(),
         clearTargetsOnEmptyClick: game.settings.get(MODULE_ID, "clear-targets-on-empty-click"),
         cursorSharingMode: game.settings.get(MODULE_ID, "cursor-sharing-mode"),
@@ -368,6 +370,16 @@ Hooks.once('init', () => {
         type: String,
         default: "off",
         choices: DEBUG_MODES
+    });
+
+    game.settings.register(MODULE_ID, "enableMcpDiagnostics", {
+        name: "Enable MCP Diagnostics",
+        hint: "Advanced GM-only diagnostics for Foundry MCP Bridge workflows, including module validation, client refresh, and confirmed temporary fixture automation. Leave this disabled unless you are intentionally debugging or testing this module.",
+        scope: "world",
+        config: true,
+        restricted: true,
+        type: Boolean,
+        default: false
     });
 
     game.settings.register(MODULE_ID, "settings-version", {
