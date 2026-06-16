@@ -1,8 +1,9 @@
-import { MODULE_ID, SOCKET_EVENT, CURSOR_SHARE_THROTTLE_MS, debugLog } from './constants.js';
+import { MODULE_ID, SOCKET_EVENT, SOCKET_MESSAGE_TYPES, CURSOR_SHARE_THROTTLE_MS, debugLog } from './constants.js';
 import { updateRemoteCursor, updateRemoteCursorImage, removeRemoteCursor } from './cursor-overlay.js';
 import { loadImage, getRotatedCursor } from './cursor-styles.js';
 import { canBroadcastVisibleCursor, getShowCursorPermissionState } from './foundry-permissions.js';
 import { getHiddenSharedCursorUserIds, getUserCursorConfig, isSharedCursorUserVisible } from './settings.js';
+import { isKnownSocketMessageType, validateSocketMessage } from './socket-messages.js';
 
 // foundry deafult C:\Program Files\Foundry Virtual Tabletop\resources\app\client\canvas\containers\elements\cursor.mjs
 
@@ -19,6 +20,12 @@ let _broadcastQueued = false;
 let _permissionBlocked = false;
 let _lastMoveDebugLog = 0;
 let _lastSocketMoveDebugLog = 0;
+let _socketListenerActive = false;
+let _nativeUserActivityListenerActive = false;
+const _inboundSocketRateLimits = new Map();
+
+const INBOUND_CURSOR_MOVE_MIN_INTERVAL_MS = 25;
+const INBOUND_CURSOR_IMAGE_MIN_INTERVAL_MS = 250;
 
 function debugCursorMoveBroadcast(currentPos, now) {
     if (now - _lastMoveDebugLog < 1000) return;
@@ -27,12 +34,23 @@ function debugCursorMoveBroadcast(currentPos, now) {
 }
 
 function debugSocketMessage(data) {
-    if (data?.type === "cursorMove") {
+    if (data?.type === SOCKET_MESSAGE_TYPES.CURSOR_MOVE) {
         const now = performance.now();
         if (now - _lastSocketMoveDebugLog < 1000) return;
         _lastSocketMoveDebugLog = now;
     }
     debugLog("sharing", `Socket received: type=${data.type}, userId=${data.userId}, sceneId=${data.sceneId}`);
+}
+
+function _isInboundRateLimited(userId, bucket, minIntervalMs) {
+    const now = Date.now();
+    const limits = _inboundSocketRateLimits.get(userId) ?? {};
+    const last = limits[bucket] ?? 0;
+    if (last && now - last < minIntervalMs) return true;
+
+    limits[bucket] = now;
+    _inboundSocketRateLimits.set(userId, limits);
+    return false;
 }
 
 function _syncVisibleCursorPermission() {
@@ -76,8 +94,10 @@ export function startCursorSharing(broadcastEnabled = true) {
 
     // Listen for our module's socket messages (cursor images + position)
     game.socket.on(SOCKET_EVENT, _onSocketMessage);
+    _socketListenerActive = true;
     debugLog("sharing", `Registered socket listener on "${SOCKET_EVENT}"`);
     game.socket.on("userActivity", _onFoundryUserActivity);
+    _nativeUserActivityListenerActive = true;
     debugLog("sharing", "Registered Foundry userActivity listener for cursor alignment");
 
     // Register a mouse move handler using Foundry's canvas system.
@@ -123,7 +143,7 @@ export function setCursorBroadcastEnabled(enabled) {
 
 export function broadcastHiddenPing(position, pingData) {
     game.socket.emit(SOCKET_EVENT, {
-        type: "hiddenPing",
+        type: SOCKET_MESSAGE_TYPES.HIDDEN_PING,
         userId: game.user.id,
         sceneId: canvas.scene?.id,
         position,
@@ -133,13 +153,18 @@ export function broadcastHiddenPing(position, pingData) {
 }
 
 export function stopCursorSharing() {
-    if (!_active) return;
+    if (!_active) {
+        _inboundSocketRateLimits.clear();
+        return;
+    }
     _active = false;
     _broadcastEnabled = false;
     _permissionBlocked = false;
 
     game.socket.off(SOCKET_EVENT, _onSocketMessage);
     game.socket.off("userActivity", _onFoundryUserActivity);
+    _socketListenerActive = false;
+    _nativeUserActivityListenerActive = false;
 
     if (_userConnectedHookId !== null) {
         Hooks.off("userConnected", _userConnectedHookId);
@@ -149,6 +174,7 @@ export function stopCursorSharing() {
     _cachedCursorDataUrl = null;
     _cachedHotspotX = 0;
     _cachedHotspotY = 0;
+    _inboundSocketRateLimits.clear();
 
     debugLog("sharing", "Cursor sharing stopped");
 }
@@ -165,6 +191,8 @@ export function getCursorSharingDebugState() {
         active: _active,
         broadcastEnabled: _broadcastEnabled,
         registeredMouseHandler: _registered,
+        socketListenerActive: _socketListenerActive,
+        nativeUserActivityListenerActive: _nativeUserActivityListenerActive,
         hasCachedCursorImage: !!_cachedCursorDataUrl,
         cachedHotspotX: _cachedHotspotX,
         cachedHotspotY: _cachedHotspotY,
@@ -204,7 +232,7 @@ function _onCanvasMouseMove(currentPos) {
 
     const socket = game.socket.volatile ?? game.socket;
     socket.emit(SOCKET_EVENT, {
-        type: "cursorMove",
+        type: SOCKET_MESSAGE_TYPES.CURSOR_MOVE,
         userId: game.user.id,
         sceneId: canvas.scene?.id,
         x: currentPos.x,
@@ -265,7 +293,9 @@ async function _broadcastCursorImage() {
         const cvs = document.createElement('canvas');
         cvs.width = img.width;
         cvs.height = img.height;
-        cvs.getContext('2d').drawImage(img, 0, 0);
+        const ctx = cvs.getContext('2d');
+        if (!ctx) throw new Error("Unable to create a 2D canvas context for shared cursor image.");
+        ctx.drawImage(img, 0, 0);
         _cachedCursorDataUrl = cvs.toDataURL('image/png');
         _cachedHotspotX = def.hotspotX;
         _cachedHotspotY = def.hotspotY;
@@ -299,7 +329,7 @@ function _emitCursorImage(dataUrl, hotspotX, hotspotY) {
     } catch { /* use defaults */ }
 
     game.socket.emit(SOCKET_EVENT, {
-        type: "cursorImage",
+        type: SOCKET_MESSAGE_TYPES.CURSOR_IMAGE,
         userId: game.user.id,
         playerName: game.user.name,
         imageDataUrl: dataUrl,
@@ -313,7 +343,7 @@ function _emitCursorImage(dataUrl, hotspotX, hotspotY) {
 
 function _emitCursorHidden() {
     game.socket.emit(SOCKET_EVENT, {
-        type: "cursorHidden",
+        type: SOCKET_MESSAGE_TYPES.CURSOR_HIDDEN,
         userId: game.user.id
     });
     debugLog("sharing", "Broadcast cursor hidden");
@@ -321,7 +351,7 @@ function _emitCursorHidden() {
 
 function _requestCursorImages(targetUserId = null) {
     game.socket.emit(SOCKET_EVENT, {
-        type: "requestCursorImage",
+        type: SOCKET_MESSAGE_TYPES.REQUEST_CURSOR_IMAGE,
         userId: game.user.id,
         targetUserId
     });
@@ -329,21 +359,31 @@ function _requestCursorImages(targetUserId = null) {
 }
 
 function _onSocketMessage(data) {
+    const validation = validateSocketMessage(data);
+    if (!validation.valid) {
+        if (isKnownSocketMessageType(data?.type)) {
+            debugLog("sharing", `Ignored malformed socket message: type=${data.type}, error=${validation.error}`);
+        }
+        return;
+    }
+
     debugSocketMessage(data);
-    if (data.type === "cursorMove") {
+    if (data.type === SOCKET_MESSAGE_TYPES.CURSOR_MOVE) {
         if (data.userId === game.user.id) return;
         if (!_canShowRemoteSharedCursor(data.userId)) {
             removeRemoteCursor(data.userId);
             return;
         }
         if (data.sceneId !== canvas.scene?.id) return;
+        if (_isInboundRateLimited(data.userId, "move", INBOUND_CURSOR_MOVE_MIN_INTERVAL_MS)) return;
         updateRemoteCursor(data.userId, data.x, data.y, { source: "module" });
-    } else if (data.type === "cursorImage") {
+    } else if (data.type === SOCKET_MESSAGE_TYPES.CURSOR_IMAGE) {
         if (data.userId === game.user.id) return;
         if (!_canShowRemoteSharedCursor(data.userId)) {
             removeRemoteCursor(data.userId);
             return;
         }
+        if (data.imageDataUrl !== null && _isInboundRateLimited(data.userId, "image", INBOUND_CURSOR_IMAGE_MIN_INTERVAL_MS)) return;
         updateRemoteCursorImage(
             data.userId,
             data.imageDataUrl,
@@ -353,16 +393,16 @@ function _onSocketMessage(data) {
             data.namePosition,
             data.nameOffset
         );
-    } else if (data.type === "cursorHidden") {
+    } else if (data.type === SOCKET_MESSAGE_TYPES.CURSOR_HIDDEN) {
         if (data.userId === game.user.id) return;
         removeRemoteCursor(data.userId);
-    } else if (data.type === "hiddenPing") {
+    } else if (data.type === SOCKET_MESSAGE_TYPES.HIDDEN_PING) {
         if (data.userId === game.user.id) return;
         if (data.sceneId !== canvas.scene?.id) return;
         const user = game.users.get(data.userId);
         if (!user || !canvas.ready || !data.position) return;
         canvas.controls.handlePing(user, data.position, data.ping ?? {});
-    } else if (data.type === "requestCursorImage") {
+    } else if (data.type === SOCKET_MESSAGE_TYPES.REQUEST_CURSOR_IMAGE) {
         if (data.userId === game.user.id) return;
         if (data.targetUserId && data.targetUserId !== game.user.id) return;
         if (!_broadcastEnabled) return;
@@ -408,6 +448,7 @@ function _onFoundryUserActivity(userId, activityData = {}) {
 function _onUserConnected(user, connected) {
     if (user.id === game.user.id) return;
     if (!connected) {
+        _inboundSocketRateLimits.delete(user.id);
         removeRemoteCursor(user.id);
         debugLog("sharing", `User disconnected: ${user.name}`);
     } else {

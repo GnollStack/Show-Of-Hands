@@ -1,4 +1,7 @@
-import { CURSOR_STATE_KEYS, DEFAULT_CURSOR_PATH } from './constants.js';
+import { CURSOR_SIZE_MAX, CURSOR_STATE_KEYS, DEFAULT_CURSOR_PATH } from './constants.js';
+import { SETTING_CHOICES, SETTING_KEYS, SETTING_RANGES } from './settings.js';
+import { normalizeRect, rectIntersectsBounds, computeMarqueeTargetUpdate } from './marquee-core.js';
+import { computeResizeOutput, computeRotationOutput, computeOverlayNamePlacement, stepCursorLerp } from './cursor-geometry-core.js';
 
 export const DIAGNOSTICS_API_VERSION = 1;
 
@@ -85,45 +88,10 @@ export const MUTATING_DIAGNOSTIC_ACTION_NAMES = Object.freeze([
     "cleanupFixtures"
 ]);
 
-export const DIAGNOSTIC_SETTING_KEYS = Object.freeze([
-    "use-aom-cursor",
-    "cursor-hotspot-x",
-    "cursor-hotspot-y",
-    "use-mousewheel-targeting",
-    "use-marquee-select",
-    "middle-mouse-actions",
-    "clear-targets-on-empty-click",
-    "use-custom-cursor",
-    "cursor-states",
-    "marquee-token-filter",
-    "shared-cursor-size",
-    "shared-cursor-opacity",
-    "show-cursor-names",
-    "cursor-name-position",
-    "cursor-name-offset",
-    "foundry-cursor-display",
-    "disable-cursor-fade",
-    "idle-identity-fade",
-    "enable-cursor-sharing",
-    "hide-my-cursor-from-others",
-    "cursor-sharing-mode",
-    "hidden-shared-cursor-users",
-    "debug-mode",
-    "enableMcpDiagnostics",
-    "settings-version"
-]);
-
-const CHOICE_SETTINGS = Object.freeze({
-    "middle-mouse-actions": Object.freeze(["off", "target", "marquee", "both"]),
-    "marquee-token-filter": Object.freeze(["all", "hostile", "neutral", "friendly", "nonFriendly"]),
-    "foundry-cursor-display": Object.freeze(["both", "names-only", "dots-only", "none"]),
-    "cursor-sharing-mode": Object.freeze(["share", "receive", "private"]),
-    "debug-mode": Object.freeze(["off", "all", "cursor", "states", "config", "sharing", "marquee"])
-});
+export const DIAGNOSTIC_SETTING_KEYS = SETTING_KEYS;
 
 const NAME_POSITIONS = Object.freeze(["bottom-center", "bottom-right", "top-center", "right", "custom"]);
-const CURSOR_SIZE_MAX = 128;
-const HOTSPOT_MAX = 128;
+const HOTSPOT_MAX = CURSOR_SIZE_MAX;
 
 function isPlainObject(value) {
     return !!value && typeof value === "object" && !Array.isArray(value);
@@ -445,21 +413,19 @@ export function validateSettingsSnapshot(snapshot) {
         }
     }
 
-    for (const [key, choices] of Object.entries(CHOICE_SETTINGS)) {
+    for (const [key, choices] of Object.entries(SETTING_CHOICES)) {
         if (!Object.prototype.hasOwnProperty.call(snapshot, key)) continue;
         if (!choices.includes(snapshot[key])) {
             errors.push(`${key} has invalid value: ${String(snapshot[key])}.`);
         }
     }
 
-    if (isFiniteNumber(snapshot["shared-cursor-size"])) {
-        const size = snapshot["shared-cursor-size"];
-        if (size < 16 || size > 128) errors.push("shared-cursor-size must be between 16 and 128.");
-    }
-
-    if (isFiniteNumber(snapshot["shared-cursor-opacity"])) {
-        const opacity = snapshot["shared-cursor-opacity"];
-        if (opacity < 0.1 || opacity > 1) errors.push("shared-cursor-opacity must be between 0.1 and 1.");
+    for (const [key, range] of Object.entries(SETTING_RANGES)) {
+        if (!Object.prototype.hasOwnProperty.call(snapshot, key)) continue;
+        const value = snapshot[key];
+        if (isFiniteNumber(value) && (value < range.min || value > range.max)) {
+            errors.push(`${key} must be between ${range.min} and ${range.max}.`);
+        }
     }
 
     if (!isPlainObject(snapshot["hidden-shared-cursor-users"])) {
@@ -548,6 +514,7 @@ export function validateV14RuntimeSnapshot(snapshot) {
             checkedContracts: requiredContracts.length + (canvasReady ? 1 : 0),
             availableContracts,
             hasSceneLevelInfo: !!sceneLevelInfo,
+            currentLevelId: typeof sceneLevelInfo?.currentLevelId === "string" ? sceneLevelInfo.currentLevelId : null,
             hasAvailableLevels: sceneLevelInfo?.hasAvailableLevels === true,
             availableLevelCount: Number.isFinite(sceneLevelInfo?.availableLevelCount)
                 ? sceneLevelInfo.availableLevelCount
@@ -595,4 +562,66 @@ export function buildSmokeReport(checks) {
         },
         checks: safeChecks
     };
+}
+
+// Deterministic self-checks for the pure marquee and cursor-geometry helpers.
+// They run identically offline (npm test / npm run smoke) and live via the MCP
+// runSmokeTests action, so the bridge can confirm the geometry/selection math
+// behaves in the deployed build. All checks are pure and create no documents.
+export function runCoreSelfChecks() {
+    const approx = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
+    const sameSet = (actual, expected) => {
+        const a = [...actual].sort();
+        const b = [...expected].sort();
+        return a.length === b.length && a.every((value, index) => value === b[index]);
+    };
+
+    // marquee-core: AABB intersection with strict edge semantics.
+    const rect = normalizeRect(0, 0, 100, 100);
+    const intersectionOk =
+        rectIntersectsBounds(rect, { left: 50, top: 50, right: 150, bottom: 150 }) === true &&
+        rectIntersectsBounds(rect, { left: 200, top: 0, right: 300, bottom: 100 }) === false &&
+        rectIntersectsBounds(rect, { left: 100, top: 0, right: 200, bottom: 100 }) === false;
+
+    // marquee-core: replace vs. additive vs. unchanged target diffs.
+    const replace = computeMarqueeTargetUpdate({ current: ["a", "b"], inBox: ["b", "c"], baseline: ["a", "b"], additive: false });
+    const additive = computeMarqueeTargetUpdate({ current: ["a"], inBox: ["c"], baseline: ["a", "b"], additive: true });
+    const unchanged = computeMarqueeTargetUpdate({ current: ["a", "b"], inBox: ["a", "b"], baseline: ["a", "b"], additive: false });
+    const targetDiffOk =
+        sameSet(replace.desired, ["b", "c"]) && sameSet(replace.toAdd, ["c"]) && sameSet(replace.toRemove, ["a"]) &&
+        sameSet(additive.desired, ["a", "b", "c"]) && sameSet(additive.toAdd, ["b", "c"]) && additive.toRemove.length === 0 &&
+        unchanged.toAdd.length === 0 && unchanged.toRemove.length === 0;
+
+    // cursor-geometry-core: resize clamps oversized images and scales the hotspot.
+    const resize = computeResizeOutput(256, 128, 128, 64, CURSOR_SIZE_MAX);
+    const resizeOk = resize.width === 128 && resize.height === 64 &&
+        resize.hotspotX === 64 && resize.hotspotY === 32 && resize.scale === 0.5;
+
+    // cursor-geometry-core: rotation identity at 0° and clamp of oversized rotated boxes.
+    const rot0 = computeRotationOutput(100, 100, 10, 20, 0, CURSOR_SIZE_MAX);
+    const rotIdentityOk = rot0.width === 100 && rot0.height === 100 &&
+        rot0.hotspotX === 10 && rot0.hotspotY === 20 && rot0.scale === 1;
+    const rotBig = computeRotationOutput(100, 100, 0, 0, 45, CURSOR_SIZE_MAX);
+    const rotClampOk = rotBig.scale < 1 && rotBig.width <= CURSOR_SIZE_MAX && rotBig.height <= CURSOR_SIZE_MAX;
+
+    // cursor-geometry-core: overlay name placement resolves a preset and rejects unknowns.
+    const placePreset = computeOverlayNamePlacement({ namePosition: "bottom-center", scale: 16, hasSprite: false });
+    const placeUnknown = computeOverlayNamePlacement({ namePosition: "definitely-not-a-preset", scale: 16, hasSprite: false });
+    const placementOk = !!placePreset && placePreset.anchorX === 0.5 && placePreset.anchorY === 0 &&
+        approx(placePreset.posY, 19.2) && placeUnknown === null;
+
+    // cursor-geometry-core: movement interpolation snaps within threshold and steps beyond it.
+    const lerpSnap = stepCursorLerp(0, 0, 0.1, 0.1, 0.5, 0.1);
+    const lerpStep = stepCursorLerp(0, 0, 10, 0, 0.5, 0.1);
+    const lerpOk = approx(lerpSnap.x, 0.1) && approx(lerpSnap.y, 0.1) && approx(lerpStep.x, 1) && approx(lerpStep.y, 0);
+
+    return [
+        makeSmokeCheck("marquee rectangle intersection (strict edges)", intersectionOk),
+        makeSmokeCheck("marquee target diff (replace/additive/unchanged)", targetDiffOk),
+        makeSmokeCheck("cursor resize scales to the size cap", resizeOk, { resize }),
+        makeSmokeCheck("cursor rotation at 0 degrees is identity", rotIdentityOk),
+        makeSmokeCheck("cursor rotation clamps oversized boxes", rotClampOk, { rotBig }),
+        makeSmokeCheck("overlay name placement resolves preset and unknown", placementOk),
+        makeSmokeCheck("cursor movement lerp snaps and steps", lerpOk)
+    ];
 }

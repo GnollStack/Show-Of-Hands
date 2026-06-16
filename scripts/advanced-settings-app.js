@@ -1,5 +1,5 @@
 import { MODULE_ID } from './constants.js';
-import { getHiddenSharedCursorUserIds, MARQUEE_TOKEN_FILTERS } from './settings.js';
+import { getHiddenSharedCursorUserIds, MARQUEE_LEVEL_FILTERS, MARQUEE_TOKEN_FILTERS } from './settings.js';
 
 function choiceEntries(choices, selected) {
     return Object.entries(choices).map(([value, label]) => ({
@@ -68,6 +68,8 @@ export class AdvancedSettingsApp extends foundry.applications.api.HandlebarsAppl
             idleIdentityFade: game.settings.get(MODULE_ID, "idle-identity-fade"),
             marqueeTokenFilter: game.settings.get(MODULE_ID, "marquee-token-filter"),
             marqueeTokenFilters: choiceEntries(MARQUEE_TOKEN_FILTERS, game.settings.get(MODULE_ID, "marquee-token-filter")),
+            marqueeLevelFilter: game.settings.get(MODULE_ID, "marquee-level-filter"),
+            marqueeLevelFilters: choiceEntries(MARQUEE_LEVEL_FILTERS, game.settings.get(MODULE_ID, "marquee-level-filter")),
             users,
             hasUsers: users.length > 0,
             diagnostics: getDiagnosticsText()
@@ -105,6 +107,7 @@ export class AdvancedSettingsApp extends foundry.applications.api.HandlebarsAppl
         await game.settings.set(MODULE_ID, "disable-cursor-fade", !!data.get("disableCursorFade"));
         await game.settings.set(MODULE_ID, "idle-identity-fade", !!data.get("idleIdentityFade"));
         await game.settings.set(MODULE_ID, "marquee-token-filter", data.get("marqueeTokenFilter") || "all");
+        await game.settings.set(MODULE_ID, "marquee-level-filter", data.get("marqueeLevelFilter") || "all");
         await game.settings.set(MODULE_ID, "hidden-shared-cursor-users", hiddenUsers);
 
         ui.notifications.info("Advanced Target The Beastie settings saved.");

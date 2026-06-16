@@ -5,6 +5,8 @@ import {
 } from './constants.js';
 import { performSingleTarget } from './targeting.js';
 import { isMiddleMouseMarqueeEnabled, tokenMatchesMarqueeFilter } from './settings.js';
+import { tokenMatchesMarqueeLevelFilter } from './scene-levels.js';
+import { normalizeRect, rectIntersectsBounds, computeMarqueeTargetUpdate } from './marquee-core.js';
 
 let _startX = 0;
 let _startY = 0;
@@ -13,6 +15,10 @@ let _startScreenY = 0;
 let _isDragging = false;
 let _movedBeyondThreshold = false;
 let _graphics = null;
+// Targets that existed before the current drag began. Lets additive (Shift)
+// drags keep prior targets while non-additive drags clear them, even as the
+// live preview box grows and shrinks over tokens mid-drag.
+let _baselineTargets = new Set();
 let _onPointerDown = null;
 let _onPointerMove = null;
 let _onPointerUp = null;
@@ -97,6 +103,9 @@ function _handlePointerMove(event) {
         if (!isMiddleMouseMarqueeEnabled()) return;
 
         _isDragging = true;
+        // Snapshot existing targets so additive vs. replace semantics stay
+        // correct as tokens enter/leave the live preview box during the drag.
+        _baselineTargets = new Set(game.user.targets);
         debugLog("marquee", "Drag started, screen threshold exceeded");
 
         // Create graphics object for the selection rectangle
@@ -106,6 +115,12 @@ function _handlePointerMove(event) {
 
     // Draw the selection rectangle
     _drawRect(_startX, _startY, worldPos.x, worldPos.y);
+
+    // Live preview: target tokens currently inside the box before release so
+    // the selection is visible while dragging.
+    const rect = normalizeRect(_startX, _startY, worldPos.x, worldPos.y);
+    const tokens = _getTokensInRect(rect);
+    _reconcileTargets(tokens, event.originalEvent?.shiftKey ?? false);
 }
 
 function _handlePointerUp(event) {
@@ -115,12 +130,12 @@ function _handlePointerUp(event) {
     if (_isDragging) {
         // Marquee drag completed — find and target tokens in the rectangle
         const worldPos = canvas.stage.toLocal(event.global);
-        const rect = _normalizeRect(_startX, _startY, worldPos.x, worldPos.y);
+        const rect = normalizeRect(_startX, _startY, worldPos.x, worldPos.y);
         const tokens = _getTokensInRect(rect);
 
         debugLog("marquee", `Marquee select complete. Found ${tokens.length} tokens in rect`, rect);
 
-        _targetTokens(tokens, isShift);
+        _reconcileTargets(tokens, isShift);
     } else if (!_movedBeyondThreshold) {
         // No drag — single-click path. performSingleTarget self-gates on
         // `middle-mouse-actions` (on-token branch) and on
@@ -147,15 +162,6 @@ function _drawRect(x1, y1, x2, y2) {
     _graphics.endFill();
 }
 
-function _normalizeRect(x1, y1, x2, y2) {
-    return {
-        left: Math.min(x1, x2),
-        top: Math.min(y1, y2),
-        right: Math.max(x1, x2),
-        bottom: Math.max(y1, y2)
-    };
-}
-
 /**
  * Find all tokens whose bounds intersect the selection rectangle.
  * GM/co-GM can target all tokens (including hidden).
@@ -165,39 +171,56 @@ function _getTokensInRect(rect) {
     const isGM = game.user.isGM;
 
     return canvas.tokens.placeables.filter(token => {
-        // Permission check: players can only target visible tokens
+        // Filter order (invariant): visibility gate, level filter, disposition
+        // filter, then rectangle intersection.
         if (!isGM && !token.visible) return false;
+        if (!tokenMatchesMarqueeLevelFilter(token)) return false;
         if (!tokenMatchesMarqueeFilter(token)) return false;
-
-        // AABB intersection test
-        const bounds = token.bounds;
-        return bounds.left < rect.right &&
-               bounds.right > rect.left &&
-               bounds.top < rect.bottom &&
-               bounds.bottom > rect.top;
+        return rectIntersectsBounds(rect, token.bounds);
     });
 }
 
 /**
- * Target the given tokens.
- * @param {Token[]} tokens - Tokens to target
- * @param {boolean} additive - If true, add to existing targets instead of replacing
+ * Reconcile the local user's targets to match the marquee selection.
+ *
+ * Computes the desired target set — the tokens in the box, plus the pre-drag
+ * baseline when `additive` (Shift) is held — then only toggles the tokens that
+ * differ from the current targets. Reconciling (instead of clearing and
+ * re-adding) keeps the live preview stable while dragging and avoids emitting
+ * redundant target updates when the selection has not changed since the last
+ * pointer move.
+ *
+ * @param {Token[]} tokens - Tokens currently inside the selection rectangle
+ * @param {boolean} additive - If true, keep the pre-drag targets in addition to the box
  */
-function _targetTokens(tokens, additive) {
-    // If not additive, clear existing targets first. Snapshot the Set to an
-    // array so iteration is unaffected by setTarget(false) mutating game.user.targets.
-    if (!additive) {
-        for (const t of [...game.user.targets]) {
-            t.setTarget(false, { user: game.user, releaseOthers: false });
-        }
-    }
+function _reconcileTargets(tokens, additive) {
+    // Build an id -> token lookup across every token we might touch, and
+    // snapshot current target ids up front so the pure diff is computed before
+    // any setTarget(false) mutates game.user.targets.
+    const tokenById = new Map();
+    const register = (token) => { if (token?.id) tokenById.set(token.id, token); };
+    for (const token of game.user.targets) register(token);
+    for (const token of _baselineTargets) register(token);
+    for (const token of tokens) register(token);
 
-    // Target each token in the selection
-    for (const token of tokens) {
-        token.setTarget(true, { user: game.user, releaseOthers: false });
-    }
+    const { desired, toAdd, toRemove } = computeMarqueeTargetUpdate({
+        current: [...game.user.targets].map(token => token.id),
+        inBox: tokens.map(token => token.id),
+        baseline: [..._baselineTargets].map(token => token.id),
+        additive
+    });
 
-    debugLog("marquee", `Targeted ${tokens.length} tokens (additive: ${additive})`);
+    // Skip tokens that vanished mid-drag (e.g. deleted) to avoid setTarget throwing.
+    const apply = (id, state) => {
+        const token = tokenById.get(id);
+        if (token && !token.destroyed) token.setTarget(state, { user: game.user, releaseOthers: false });
+    };
+    for (const id of toRemove) apply(id, false);
+    for (const id of toAdd) apply(id, true);
+
+    if (toAdd.length || toRemove.length) {
+        debugLog("marquee", `Reconciled marquee targets: ${desired.size} targeted (additive: ${additive}, +${toAdd.length}/-${toRemove.length})`);
+    }
 }
 
 function _cleanupDragState() {
@@ -221,4 +244,5 @@ function _cleanupDragState() {
     _onPointerUp = null;
     _isDragging = false;
     _movedBeyondThreshold = false;
+    _baselineTargets = new Set();
 }

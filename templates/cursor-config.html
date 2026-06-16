@@ -86,14 +86,14 @@
                 <label>Cursor Image</label>
                 <div class="ttb-image-row">
                     <input type="text" name="states.{{key}}.image" value="{{image}}" placeholder="Path to cursor image...">
-                    <button type="button" class="ttb-browse-btn" data-action="browseCursorImage" title="Browse for image">
+                    <button type="button" class="ttb-browse-btn" data-action="browseCursorImage" title="Browse for image" aria-label="Browse for image">
                         <i class="fas fa-file-import"></i>
                     </button>
-                    <button type="button" class="ttb-aom-btn" data-action="useAomDefault" title="Use AoM default cursor">
+                    <button type="button" class="ttb-aom-btn" data-action="useAomDefault" title="Use AoM default cursor" aria-label="Use AoM default cursor">
                         <i class="fas fa-undo"></i>
                     </button>
                     {{#unless isDefault}}
-                    <button type="button" class="ttb-clear-btn" data-action="clearCursorImage" title="Use Foundry native cursor for this state">
+                    <button type="button" class="ttb-clear-btn" data-action="clearCursorImage" title="Use Foundry native cursor for this state" aria-label="Use Foundry native cursor for this state">
                         <i class="fas fa-xmark"></i>
                     </button>
                     {{/unless}}
@@ -106,7 +106,8 @@
                          style="{{#unless image}}display:none;{{/unless}}">
                     <div class="ttb-hotspot-dot"></div>
                     {{#if isDefault}}
-                    <div class="ttb-name-drag-label">{{../playerName}}</div>
+                    <div class="ttb-name-drag-label" tabindex="0" role="button"
+                         aria-label="Overlay name position. Drag, or focus and use the arrow keys to reposition.">{{../playerName}}</div>
                     {{/if}}
                 </div>
                 <p class="ttb-preview-label">
@@ -159,7 +160,7 @@
                     <span>W:</span>
                     <input type="number" name="states.{{key}}.width" class="ttb-size-w" min="1" max="128" value="{{#if width}}{{width}}{{/if}}" placeholder="auto">
                     <span>px</span>
-                    <button type="button" class="ttb-ratio-btn" title="Lock aspect ratio">
+                    <button type="button" class="ttb-ratio-btn" title="Lock aspect ratio" aria-label="Lock aspect ratio" aria-pressed="false">
                         <i class="fas fa-link"></i>
                     </button>
                     <span>H:</span>

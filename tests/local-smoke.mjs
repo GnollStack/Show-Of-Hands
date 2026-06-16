@@ -5,6 +5,7 @@ import {
     READ_ONLY_DIAGNOSTIC_ACTION_NAMES,
     buildSmokeReport,
     makeSmokeCheck,
+    runCoreSelfChecks,
     validateCursorConfig
 } from '../scripts/diagnostics-core.js';
 import { canBroadcastVisibleCursor } from '../scripts/foundry-permissions.js';
@@ -24,7 +25,8 @@ const report = buildSmokeReport([
         'read-only diagnostics metadata declares no document creation',
         READ_ONLY_DIAGNOSTIC_ACTION_NAMES.every(name => DIAGNOSTIC_ACTION_METADATA[name]?.createsDocuments === false)
     ),
-    makeSmokeCheck('SHOW_CURSOR helper defaults to allowed without Foundry permission API', canBroadcastVisibleCursor({}))
+    makeSmokeCheck('SHOW_CURSOR helper defaults to allowed without Foundry permission API', canBroadcastVisibleCursor({})),
+    ...runCoreSelfChecks()
 ]);
 
 console.log(JSON.stringify(report, null, 2));

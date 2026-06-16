@@ -13,12 +13,16 @@ import {
     compareCursorStates,
     jsonSafeClone,
     makeSmokeCheck,
+    runCoreSelfChecks,
     validateCursorConfig,
     validateV14RuntimeSnapshot,
     validateSettingsSnapshot
 } from '../scripts/diagnostics-core.js';
 import { canBroadcastVisibleCursor, getShowCursorPermissionState } from '../scripts/foundry-permissions.js';
 import { getCursorSharingDebugState } from '../scripts/cursor-sharing.js';
+import { filterPrivateBroadcastActivity } from '../scripts/privacy-broadcast.js';
+import { isTokenIncludedInLevel, tokenMatchesMarqueeLevelFilter } from '../scripts/scene-levels.js';
+import { MARQUEE_LEVEL_FILTERS, SETTING_CHOICES, SETTING_KEYS, SETTING_RANGES, tokenMatchesMarqueeFilter } from '../scripts/settings.js';
 
 async function readFixture(name) {
     const text = await readFile(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
@@ -80,6 +84,13 @@ test('diagnostics snapshot exposes a single MCP setting', () => {
     );
 });
 
+test('diagnostic setting keys come from central metadata', () => {
+    assert.deepEqual(DIAGNOSTIC_SETTING_KEYS, SETTING_KEYS);
+    assert.deepEqual(SETTING_CHOICES['marquee-level-filter'], ['all', 'viewed']);
+    assert.deepEqual(Object.keys(MARQUEE_LEVEL_FILTERS), ['all', 'viewed']);
+    assert.equal(SETTING_RANGES['shared-cursor-size'].max, 128);
+});
+
 test('SHOW_CURSOR permission helper defaults to allowed when the API is unavailable', () => {
     assert.equal(canBroadcastVisibleCursor({ id: 'user-without-api' }), true);
     assert.deepEqual(getShowCursorPermissionState({ id: 'user-without-api' }), {
@@ -130,6 +141,64 @@ test('cursor sharing debug state reports SHOW_CURSOR permission blocking', () =>
     }
 });
 
+test('private broadcast filtering drops cursor-only activity', () => {
+    const result = filterPrivateBroadcastActivity({ cursor: { x: 1, y: 2 } }, { privateMode: true });
+
+    assert.equal(result.action, 'drop');
+    assert.equal(result.activityData, null);
+    assert.equal(result.hiddenPing, null);
+    assert.equal(result.removedCursor, true);
+});
+
+test('private broadcast filtering forwards non-cursor fields', () => {
+    const result = filterPrivateBroadcastActivity({
+        cursor: { x: 1, y: 2 },
+        targets: ['a', 'b']
+    }, { privateMode: true });
+
+    assert.equal(result.action, 'forward');
+    assert.deepEqual(result.activityData, { targets: ['a', 'b'] });
+    assert.equal(result.hiddenPing, null);
+});
+
+test('private broadcast filtering reroutes cursor pings', () => {
+    const result = filterPrivateBroadcastActivity({
+        cursor: { x: 10, y: 20 },
+        ping: { pull: true, zoom: 1.5 }
+    }, { privateMode: true });
+
+    assert.equal(result.action, 'drop');
+    assert.deepEqual(result.hiddenPing, {
+        position: { x: 10, y: 20 },
+        ping: { pull: true, zoom: 1.5 }
+    });
+    assert.equal(result.removedPing, true);
+});
+
+test('private broadcast filtering reroutes ping and forwards unrelated activity', () => {
+    const result = filterPrivateBroadcastActivity({
+        cursor: { x: 10, y: 20 },
+        ping: { pull: false },
+        targets: ['target-id']
+    }, { privateMode: true });
+
+    assert.equal(result.action, 'forward');
+    assert.deepEqual(result.activityData, { targets: ['target-id'] });
+    assert.deepEqual(result.hiddenPing, {
+        position: { x: 10, y: 20 },
+        ping: { pull: false }
+    });
+});
+
+test('non-private broadcast filtering forwards unchanged activity', () => {
+    const activity = { cursor: { x: 1, y: 2 }, ping: { pull: true } };
+    const result = filterPrivateBroadcastActivity(activity, { privateMode: false });
+
+    assert.equal(result.action, 'forward');
+    assert.equal(result.activityData, activity);
+    assert.equal(result.hiddenPing, null);
+});
+
 test('cursor state comparison distinguishes legacy settings from the canonical profile', async () => {
     const fixture = await readFixture('cursor-profile.valid.json');
     const legacyStates = structuredClone(fixture.cursorStates);
@@ -153,6 +222,80 @@ test('cursor asset candidates mark only canonical runtime assets as active', asy
 
     assert.ok(active.some(candidate => candidate.source === 'currentUserProfile' && candidate.state === 'default'));
     assert.equal(legacy.every(candidate => candidate.active === false), true);
+});
+
+test('marquee level filter is a no-op without level context', () => {
+    const token = { document: { level: 'upper' } };
+
+    assert.equal(tokenMatchesMarqueeLevelFilter(token, {
+        filter: 'viewed',
+        canvasRef: {}
+    }), true);
+});
+
+test('marquee level filter uses includedInLevel when available', () => {
+    const token = {
+        document: {
+            includedInLevel: (levelId) => levelId === 'balcony'
+        }
+    };
+
+    assert.equal(isTokenIncludedInLevel(token, 'balcony'), true);
+    assert.equal(isTokenIncludedInLevel(token, 'cellar'), false);
+    assert.equal(tokenMatchesMarqueeLevelFilter(token, {
+        filter: 'viewed',
+        canvasRef: { level: { id: 'balcony' } }
+    }), true);
+});
+
+test('marquee level filter falls back to token document level', () => {
+    const token = { document: { level: 'ground' } };
+
+    assert.equal(tokenMatchesMarqueeLevelFilter(token, {
+        filter: 'viewed',
+        canvasRef: { level: { id: 'ground' } }
+    }), true);
+    assert.equal(tokenMatchesMarqueeLevelFilter(token, {
+        filter: 'viewed',
+        canvasRef: { level: { id: 'roof' } }
+    }), false);
+});
+
+test('marquee disposition filter still applies after level eligibility', () => {
+    const priorGame = globalThis.game;
+    const priorConst = globalThis.CONST;
+    globalThis.game = {
+        settings: {
+            get(namespace, key) {
+                assert.equal(key, 'marquee-token-filter');
+                return 'hostile';
+            }
+        }
+    };
+    globalThis.CONST = {
+        TOKEN_DISPOSITIONS: {
+            HOSTILE: -1,
+            NEUTRAL: 0,
+            FRIENDLY: 1
+        }
+    };
+
+    try {
+        const hostileToken = { document: { level: 'ground', disposition: -1 } };
+        const friendlyToken = { document: { level: 'ground', disposition: 1 } };
+
+        assert.equal(tokenMatchesMarqueeLevelFilter(hostileToken, {
+            filter: 'viewed',
+            canvasRef: { level: { id: 'ground' } }
+        }), true);
+        assert.equal(tokenMatchesMarqueeFilter(hostileToken), true);
+        assert.equal(tokenMatchesMarqueeFilter(friendlyToken), false);
+    } finally {
+        if (priorGame === undefined) delete globalThis.game;
+        else globalThis.game = priorGame;
+        if (priorConst === undefined) delete globalThis.CONST;
+        else globalThis.CONST = priorConst;
+    }
 });
 
 test('jsonSafeClone handles circular values and non-json primitives', () => {
@@ -180,6 +323,7 @@ test('settings snapshot validation catches invalid choices', () => {
         'use-custom-cursor': true,
         'cursor-states': {},
         'marquee-token-filter': 'all',
+        'marquee-level-filter': 'all',
         'shared-cursor-size': 16,
         'shared-cursor-opacity': 1,
         'show-cursor-names': false,
@@ -200,6 +344,14 @@ test('settings snapshot validation catches invalid choices', () => {
     const result = validateSettingsSnapshot(snapshot);
     assert.equal(result.valid, false);
     assert.ok(result.errors.some(error => error.includes('middle-mouse-actions')));
+
+    const invalidLevelFilter = validateSettingsSnapshot({
+        ...snapshot,
+        'middle-mouse-actions': 'both',
+        'marquee-level-filter': 'bad-level-filter'
+    });
+    assert.equal(invalidLevelFilter.valid, false);
+    assert.ok(invalidLevelFilter.errors.some(error => error.includes('marquee-level-filter')));
 });
 
 test('V14 runtime snapshot validation requires explicit contracts', () => {
@@ -279,4 +431,18 @@ test('smoke report uses pass/fail summary and never creates documents', () => {
     assert.equal(report.createsDocuments, false);
     assert.equal(report.summary.total, 2);
     assert.equal(report.summary.failed, 1);
+});
+
+test('runCoreSelfChecks all pass and produce a clean smoke report', () => {
+    const checks = runCoreSelfChecks();
+    assert.ok(checks.length > 0);
+    for (const check of checks) {
+        assert.equal(check.status, 'pass', `core self-check failed: ${check.name}`);
+    }
+
+    // The MCP runSmokeTests action embeds these; the report must stay clean and document-free.
+    const report = buildSmokeReport(checks);
+    assert.equal(report.passed, true);
+    assert.equal(report.createsDocuments, false);
+    assert.equal(report.summary.failed, 0);
 });

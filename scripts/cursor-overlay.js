@@ -1,4 +1,5 @@
-import { MODULE_ID, CURSOR_POINTER_SIZE, CURSOR_FADE_TIMEOUT_MS, CURSOR_LERP_SPEED, NAME_POSITION_PRESETS, debugLog } from './constants.js';
+import { MODULE_ID, CURSOR_POINTER_SIZE, CURSOR_FADE_TIMEOUT_MS, CURSOR_LERP_SPEED, debugLog } from './constants.js';
+import { computeOverlayNamePlacement, stepCursorLerp } from './cursor-geometry-core.js';
 
 let _container = null;
 const _cursors = new Map();
@@ -26,12 +27,25 @@ export function updateOverlaySetting(key, value) {
     if (key === "foundryCursorDisplay") {
         _lastFoundryNames = null;
         _lastFoundryDots = null;
-        _lastFoundryCursorChildren = [];
+        _markFoundryChildrenDirty();
     }
     // Invalidate name positioning when name-related settings change
     if (key === "namePosition" || key === "nameOffset" || key === "showNames") {
         for (const [, entry] of _cursors) entry.nameDirty = true;
     }
+}
+
+export function getCursorOverlayDebugState() {
+    const parent = _getOverlayParent();
+    return {
+        initialized: !!(_container && !_container.destroyed),
+        parentAvailable: !!parent,
+        attachedToParent: !!(_container && !_container.destroyed && _container.parent === parent),
+        cursorCount: _cursors.size,
+        pendingImageCount: _pendingImages.size,
+        pendingPositionCount: _pendingPositions.size,
+        tickerActive: !!_tickerCallback
+    };
 }
 
 export function initCursorOverlay() {
@@ -44,10 +58,11 @@ export function initCursorOverlay() {
 
 export function destroyCursorOverlay() {
     if (_tickerCallback) {
-        canvas.app.ticker.remove(_tickerCallback);
+        if (canvas?.app?.ticker) canvas.app.ticker.remove(_tickerCallback);
         _tickerCallback = null;
     }
     _updateFoundryCursors(true, true);
+    _detachFoundryChildrenListeners();
     _destroyAllCursorEntries();
     if (_container && !_container.destroyed) {
         _container.destroy({ children: true });
@@ -58,7 +73,8 @@ export function destroyCursorOverlay() {
     _pendingPositions.clear();
     _lastFoundryNames = null;
     _lastFoundryDots = null;
-    _lastFoundryCursorChildren = [];
+    _lastFoundryChildrenLength = -1;
+    _markFoundryChildrenDirty();
     debugLog("sharing", "Cursor overlay destroyed");
 }
 
@@ -215,6 +231,8 @@ function _getOrCreateCursor(userId) {
         nameDirty: true,
         imageLoadId: 0,
         imageDataUrl: null,
+        imageWidth: 0,
+        imageHeight: 0,
         hotspotX: 0,
         hotspotY: 0,
         nativeMovementSeen: false
@@ -258,6 +276,8 @@ function _applyCursorImage(entry, imageDataUrl, hotspotX, hotspotY) {
         // Revert to arrow
         entry.arrow.visible = true;
         entry.baseSize = CURSOR_POINTER_SIZE;
+        entry.imageWidth = 0;
+        entry.imageHeight = 0;
         entry.nameDirty = true;
         return;
     }
@@ -278,6 +298,8 @@ function _applyCursorImage(entry, imageDataUrl, hotspotX, hotspotY) {
 
         entry.sprite = sprite;
         entry.arrow.visible = false;
+        entry.imageWidth = img.width;
+        entry.imageHeight = img.height;
         entry.baseSize = Math.max(img.width, img.height) || CURSOR_POINTER_SIZE;
         entry.container.addChildAt(sprite, 0);
         entry.nameDirty = true;
@@ -290,6 +312,8 @@ function _applyCursorImage(entry, imageDataUrl, hotspotX, hotspotY) {
         console.warn(`${MODULE_ID} | Failed to load shared cursor image`);
         entry.arrow.visible = true;
         entry.baseSize = CURSOR_POINTER_SIZE;
+        entry.imageWidth = 0;
+        entry.imageHeight = 0;
         entry.nameDirty = true;
     };
     img.src = imageDataUrl;
@@ -298,7 +322,33 @@ function _applyCursorImage(entry, imageDataUrl, hotspotX, hotspotY) {
 // Cached values to avoid redundant per-frame work
 let _lastFoundryNames = null;
 let _lastFoundryDots = null;
-let _lastFoundryCursorChildren = [];
+let _lastFoundryChildrenLength = -1;
+let _foundryChildrenDirty = true;
+let _foundryChildrenParent = null;
+
+function _markFoundryChildrenDirty() {
+    _foundryChildrenDirty = true;
+}
+
+function _detachFoundryChildrenListeners() {
+    if (_foundryChildrenParent && !_foundryChildrenParent.destroyed) {
+        _foundryChildrenParent.off?.("childAdded", _markFoundryChildrenDirty);
+        _foundryChildrenParent.off?.("childRemoved", _markFoundryChildrenDirty);
+    }
+    _foundryChildrenParent = null;
+}
+
+function _attachFoundryChildrenListeners(parent) {
+    if (_foundryChildrenParent === parent) return;
+
+    _detachFoundryChildrenListeners();
+    if (parent && !parent.destroyed) {
+        parent.on?.("childAdded", _markFoundryChildrenDirty);
+        parent.on?.("childRemoved", _markFoundryChildrenDirty);
+        _foundryChildrenParent = parent;
+    }
+    _markFoundryChildrenDirty();
+}
 
 function _getOverlayParent() {
     const parent = canvas?.controls?.cursors;
@@ -312,11 +362,13 @@ function _ensureOverlayContainer(logMissing = true) {
         if (logMissing) debugLog("sharing", "initCursorOverlay: canvas.controls.cursors unavailable");
         return false;
     }
+    _attachFoundryChildrenListeners(parent);
 
     if (_container?.destroyed) {
         _queuePendingImagesFromEntries();
         _cursors.clear();
         _container = null;
+        _markFoundryChildrenDirty();
     }
 
     if (!_container) {
@@ -324,11 +376,12 @@ function _ensureOverlayContainer(logMissing = true) {
         _container.name = "ttb-cursor-sharing";
         _container.eventMode = "none";
         parent.addChild(_container);
-        _lastFoundryCursorChildren = [];
+        _markFoundryChildrenDirty();
         debugLog("sharing", `initCursorOverlay: container added to canvas.controls.cursors, visible=${_container.visible}`);
     } else if (_container.parent !== parent) {
+        if (_container.parent && !_container.parent.destroyed) _container.parent.removeChild(_container);
         parent.addChild(_container);
-        _lastFoundryCursorChildren = [];
+        _markFoundryChildrenDirty();
         debugLog("sharing", "initCursorOverlay: container reattached to current canvas.controls.cursors");
     }
 
@@ -360,6 +413,8 @@ function _destroyCursorSprite(entry) {
         entry.sprite.destroy({ texture: true, baseTexture: true });
     }
     entry.sprite = null;
+    entry.imageWidth = 0;
+    entry.imageHeight = 0;
 }
 
 function _destroyCursorEntry(entry) {
@@ -387,8 +442,8 @@ function _projectCursorPosition(entry) {
     );
 }
 
-function _updateFoundryCursors(showFoundryNames, showFoundryDots) {
-    for (const cursor of _getFoundryCursorChildren()) {
+function _updateFoundryCursors(showFoundryNames, showFoundryDots, foundryCursorChildren = _getFoundryCursorChildren()) {
+    for (const cursor of foundryCursorChildren) {
         if (!cursor.children) continue;
         for (const child of cursor.children) {
             if (child instanceof PIXI.Graphics) {
@@ -400,11 +455,6 @@ function _updateFoundryCursors(showFoundryNames, showFoundryDots) {
     }
 }
 
-function _foundryCursorChildrenChanged(children) {
-    if (children.length !== _lastFoundryCursorChildren.length) return true;
-    return children.some((child, i) => child !== _lastFoundryCursorChildren[i]);
-}
-
 function _getEffectiveFoundryCursorDisplay(foundryCursorDisplay, showModuleNames) {
     if (!showModuleNames) return foundryCursorDisplay;
     if (foundryCursorDisplay === "both") return "dots-only";
@@ -413,6 +463,7 @@ function _getEffectiveFoundryCursorDisplay(foundryCursorDisplay, showModuleNames
 }
 
 function _tick() {
+    if (!canvas?.ready || !canvas.app?.ticker) return;
     if (!_ensureOverlayContainer(false)) return;
 
     const now = Date.now();
@@ -422,16 +473,20 @@ function _tick() {
     // Only update Foundry's native cursor elements when the setting actually changes
     const showFoundryNames = effectiveFoundryCursorDisplay === "both" || effectiveFoundryCursorDisplay === "names-only";
     const showFoundryDots = effectiveFoundryCursorDisplay === "both" || effectiveFoundryCursorDisplay === "dots-only";
-    const foundryCursorChildren = _getFoundryCursorChildren();
+    const foundryChildrenLength = canvas.controls?.cursors?.children?.length ?? 0;
+    if (foundryChildrenLength !== _lastFoundryChildrenLength) _markFoundryChildrenDirty();
+
     if (
         showFoundryNames !== _lastFoundryNames ||
         showFoundryDots !== _lastFoundryDots ||
-        _foundryCursorChildrenChanged(foundryCursorChildren)
+        _foundryChildrenDirty
     ) {
+        const foundryCursorChildren = _getFoundryCursorChildren();
         _lastFoundryNames = showFoundryNames;
         _lastFoundryDots = showFoundryDots;
-        _lastFoundryCursorChildren = foundryCursorChildren;
-        _updateFoundryCursors(showFoundryNames, showFoundryDots);
+        _lastFoundryChildrenLength = foundryChildrenLength;
+        _foundryChildrenDirty = false;
+        _updateFoundryCursors(showFoundryNames, showFoundryDots, foundryCursorChildren);
     }
 
     for (const [, entry] of _cursors) {
@@ -441,52 +496,20 @@ function _tick() {
         // Only recalculate positioning when something changed (nameDirty flag)
         if (showNames) {
             if (entry.nameDirty) {
-                const s = CURSOR_POINTER_SIZE;
-                const cursorNamePos = entry.namePosition || namePosition;
-                const cursorNameOff = entry.nameOffset || nameOffset;
-
-                // The config preview positions the name relative to the image center,
-                // but the container origin (0,0) is the hotspot. Compute the offset
-                // from hotspot to image center so positions match the preview.
-                let centerOffX = 0, centerOffY = 0;
-                if (entry.sprite && entry.sprite.texture) {
-                    const sw = entry.sprite.texture.width;
-                    const sh = entry.sprite.texture.height;
-                    centerOffX = sw * (0.5 - entry.sprite.anchor.x);
-                    centerOffY = sh * (0.5 - entry.sprite.anchor.y);
-                }
-
-                if (cursorNamePos === "custom") {
-                    entry.text.anchor.set(0.5, 0);
-                    entry.text.position.set(centerOffX + s * cursorNameOff.x, centerOffY + s * cursorNameOff.y);
-                } else {
-                    const preset = NAME_POSITION_PRESETS[cursorNamePos];
-                    if (preset) {
-                        entry.text.anchor.set(preset.anchorX, preset.anchorY);
-                        let posX = centerOffX + s * preset.offsetX;
-                        let posY = centerOffY + s * preset.offsetY;
-
-                        // For sprites, clamp so the name doesn't overlap the image
-                        if (entry.sprite && entry.sprite.texture) {
-                            const sw = entry.sprite.texture.width;
-                            const sh = entry.sprite.texture.height;
-                            const gap = s * 0.2;
-                            // Push past bottom edge for bottom-anchored labels (anchorY 0 = text top at pos)
-                            if (preset.anchorY === 0) {
-                                posY = Math.max(posY, sh * (1 - entry.sprite.anchor.y) + gap);
-                            }
-                            // Push above top edge for top-anchored labels (anchorY 1 = text bottom at pos)
-                            if (preset.anchorY === 1) {
-                                posY = Math.min(posY, -sh * entry.sprite.anchor.y - gap);
-                            }
-                            // Push past right edge for left-anchored labels (anchorX 0 = text left at pos)
-                            if (preset.anchorX === 0) {
-                                posX = Math.max(posX, sw * (1 - entry.sprite.anchor.x) + gap);
-                            }
-                        }
-
-                        entry.text.position.set(posX, posY);
-                    }
+                const hasSprite = !!entry.sprite;
+                const placement = computeOverlayNamePlacement({
+                    namePosition: entry.namePosition || namePosition,
+                    nameOffset: entry.nameOffset || nameOffset,
+                    scale: CURSOR_POINTER_SIZE,
+                    hasSprite,
+                    spriteWidth: hasSprite ? (entry.imageWidth || entry.sprite.texture?.width || 0) : 0,
+                    spriteHeight: hasSprite ? (entry.imageHeight || entry.sprite.texture?.height || 0) : 0,
+                    spriteAnchorX: hasSprite ? entry.sprite.anchor.x : 0,
+                    spriteAnchorY: hasSprite ? entry.sprite.anchor.y : 0
+                });
+                if (placement) {
+                    entry.text.anchor.set(placement.anchorX, placement.anchorY);
+                    entry.text.position.set(placement.posX, placement.posY);
                 }
                 entry.nameDirty = false;
             }
@@ -496,19 +519,11 @@ function _tick() {
         }
         // Smooth interpolation toward target position (matches Foundry's native dx/10 approach)
         if (entry.initialized) {
-            const cx = entry.currentX;
-            const cy = entry.currentY;
-            const dx = entry.targetX - cx;
-            const dy = entry.targetY - cy;
-
-            // Snap if very close, otherwise lerp (matching Foundry's snap threshold)
-            if (Math.abs(dx) + Math.abs(dy) < 0.5 / (CONFIG.Canvas.maxZoom || 3)) {
-                entry.currentX = entry.targetX;
-                entry.currentY = entry.targetY;
-            } else {
-                entry.currentX = cx + dx * CURSOR_LERP_SPEED;
-                entry.currentY = cy + dy * CURSOR_LERP_SPEED;
-            }
+            // Snap threshold matches Foundry's native snap behavior at the current max zoom.
+            const snapThreshold = 0.5 / (CONFIG.Canvas.maxZoom || 3);
+            const stepped = stepCursorLerp(entry.currentX, entry.currentY, entry.targetX, entry.targetY, snapThreshold, CURSOR_LERP_SPEED);
+            entry.currentX = stepped.x;
+            entry.currentY = stepped.y;
             _projectCursorPosition(entry);
         }
 

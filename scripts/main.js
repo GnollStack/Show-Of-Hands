@@ -9,47 +9,36 @@
  * @author GnollStack
  */
 
-import { MODULE_ID, DEBUG_MODES, debugLog } from './constants.js';
+import { MODULE_ID, debugLog } from './constants.js';
 import {
-    CURSOR_SHARING_MODES,
-    MARQUEE_TOKEN_FILTERS,
-    MIDDLE_MOUSE_ACTION_MODES,
-    getDefaultCursorStates,
+    SETTING_DEFINITIONS,
+    USER_CURSOR_CONFIG_FLAG,
+    buildSettingRegistrationOptions,
+    getMarqueeLevelFilter,
     getMiddleMouseActionMode,
     getUserCursorConfig,
     isCursorBroadcastEnabled,
     isCursorPrivateMode,
     migrateSettings,
-    USER_CURSOR_CONFIG_FLAG
+    summarizeCursorConfigForLog
 } from './settings.js';
 import { applyCursorStyles } from './cursor-styles.js';
 import { toggleMarqueeListener, cleanupMarqueeListener } from './marquee-select.js';
 import { setupCursorStateListeners, cleanupCursorStateListeners } from './state-detection.js';
 import { CursorConfigApp } from './cursor-config-app.js';
 import { AdvancedSettingsApp } from './advanced-settings-app.js';
-import { initCursorOverlay, destroyCursorOverlay, updateOverlaySetting } from './cursor-overlay.js';
+import { initCursorOverlay, destroyCursorOverlay, getCursorOverlayDebugState, updateOverlaySetting } from './cursor-overlay.js';
 import { startCursorSharing, stopCursorSharing, refreshSharedCursorImage, setCursorBroadcastEnabled, broadcastHiddenPing, syncHiddenRemoteCursors, getCursorSharingDebugState } from './cursor-sharing.js';
 import { createDiagnostics } from './diagnostics.js';
 import { getShowCursorPermissionState } from './foundry-permissions.js';
+import { getMarqueeLevelFilterStatus } from './scene-levels.js';
+import {
+    broadcastNativeActivity,
+    getCursorPrivacyBroadcastDebugState,
+    installCursorPrivacyBroadcastWrapper
+} from './privacy-broadcast.js';
 
 debugLog("cursor", "main.js loaded, all imports resolved OK");
-
-let _originalBroadcastActivity = null;
-
-function summarizeCursorConfigForLog(config) {
-    const states = config?.cursorStates ?? {};
-    const enabledStates = Object.entries(states)
-        .filter(([, state]) => state?.enabled !== false && state?.image)
-        .map(([key]) => key);
-
-    return {
-        useCustomCursor: !!config?.useCustomCursor,
-        namePosition: config?.namePosition ?? null,
-        nameOffset: config?.nameOffset ?? null,
-        stateCount: Object.keys(states).length,
-        enabledImageStates: enabledStates
-    };
-}
 
 function syncMiddleMouseListener() {
     const hasMiddleMouseAction = getMiddleMouseActionMode() !== "off";
@@ -69,36 +58,30 @@ async function syncLocalCursorProfile() {
     refreshSharedCursorImage();
 }
 
-function installCursorPrivacyPatch() {
-    const proto = game.user?.constructor?.prototype;
-    if (!proto || _originalBroadcastActivity) return;
-
-    _originalBroadcastActivity = proto.broadcastActivity;
-    proto.broadcastActivity = function(activityData = {}, options = {}) {
-        if (this.isSelf && isCursorPrivateMode()) {
-            const hasCursor = Object.prototype.hasOwnProperty.call(activityData, "cursor");
-            const isPing = Object.prototype.hasOwnProperty.call(activityData, "ping");
-            if (hasCursor && isPing) {
-                broadcastHiddenPing(activityData.cursor, activityData.ping);
-                return;
-            }
-            if (hasCursor) {
-                const filtered = { ...activityData };
-                delete filtered.cursor;
-                if (!Object.keys(filtered).length) return;
-                return _originalBroadcastActivity.call(this, filtered, options);
-            }
-        }
-
-        return _originalBroadcastActivity.call(this, activityData, options);
-    };
-}
-
 function syncCursorPrivacy() {
     const hidden = isLocalCursorHidden();
     setCursorBroadcastEnabled(isCursorBroadcastEnabled());
     if (hidden) {
-        _originalBroadcastActivity?.call(game.user, { cursor: null }, { volatile: false });
+        broadcastNativeActivity({ cursor: null }, { volatile: false });
+    }
+}
+
+// Maps client setting keys to the overlay setting names they drive. Used to
+// push current values into the overlay cache on canvasReady.
+const OVERLAY_SETTING_KEYS = Object.freeze({
+    "shared-cursor-size": "cursorSize",
+    "shared-cursor-opacity": "cursorOpacity",
+    "show-cursor-names": "showNames",
+    "foundry-cursor-display": "foundryCursorDisplay",
+    "idle-identity-fade": "idleIdentityFade",
+    "disable-cursor-fade": "disableCursorFade",
+    "cursor-name-position": "namePosition",
+    "cursor-name-offset": "nameOffset"
+});
+
+function syncOverlaySettingsFromStore() {
+    for (const [settingKey, overlayKey] of Object.entries(OVERLAY_SETTING_KEYS)) {
+        updateOverlaySetting(overlayKey, game.settings.get(MODULE_ID, settingKey));
     }
 }
 
@@ -117,8 +100,12 @@ function getDebugState() {
         cursorBroadcastEnabled: isCursorBroadcastEnabled(),
         cursorPrivateMode: isCursorPrivateMode(),
         marqueeTokenFilter: game.settings.get(MODULE_ID, "marquee-token-filter"),
+        marqueeLevelFilter: getMarqueeLevelFilter(),
+        marqueeLevelFilterStatus: getMarqueeLevelFilterStatus(),
         hiddenSharedCursorUsers: game.settings.get(MODULE_ID, "hidden-shared-cursor-users"),
+        cursorPrivacyBroadcast: getCursorPrivacyBroadcastDebugState(),
         cursorSharing: getCursorSharingDebugState(),
+        cursorOverlay: getCursorOverlayDebugState(),
         userCursorConfig: getUserCursorConfig(game.user)
     };
 }
@@ -141,284 +128,74 @@ function installApi() {
     globalThis.TargetTheBeastie = api;
 }
 
-Hooks.once('init', () => {
-    debugLog("cursor", "Initializing settings...");
-
-    // --- Legacy settings (hidden, kept for migration) ---
-    game.settings.register(MODULE_ID, "use-aom-cursor", {
-        scope: "client", config: false, type: Boolean, default: true
-    });
-    game.settings.register(MODULE_ID, "cursor-hotspot-x", {
-        scope: "client", config: false, type: Number, default: 4
-    });
-    game.settings.register(MODULE_ID, "cursor-hotspot-y", {
-        scope: "client", config: false, type: Number, default: 4
-    });
-
-    game.settings.register(MODULE_ID, "use-mousewheel-targeting", {
-        scope: "client",
-        config: false,
-        type: Boolean,
-        default: true
-    });
-
-    game.settings.register(MODULE_ID, "use-marquee-select", {
-        scope: "client",
-        config: false,
-        type: Boolean,
-        default: true
-    });
-
-    // --- New settings ---
-    game.settings.register(MODULE_ID, "middle-mouse-actions", {
-        name: "Middle-Mouse Actions",
-        hint: "Choose what the middle mouse button does on the canvas. Shift still adds to existing targets.",
-        scope: "client",
-        config: true,
-        type: String,
-        default: "both",
-        choices: MIDDLE_MOUSE_ACTION_MODES,
-        onChange: () => syncMiddleMouseListener()
-    });
-
-    game.settings.register(MODULE_ID, "clear-targets-on-empty-click", {
-        name: "Clear Targets on Empty Middle-Click",
-        hint: "Middle-click on empty canvas (no token under cursor) clears all of your current targets. Hold Shift to keep your targets when clicking empty space.",
-        scope: "client",
-        config: true,
-        type: Boolean,
-        default: true,
-        onChange: () => syncMiddleMouseListener()
-    });
-
-    game.settings.register(MODULE_ID, "use-custom-cursor", {
-        name: "Use Custom Cursor",
-        hint: "Legacy local toggle. Use Cursor Settings to configure the per-player cursor profile.",
-        scope: "client",
-        config: false,
-        type: Boolean,
-        default: true
-    });
-
-    game.settings.register(MODULE_ID, "cursor-states", {
-        scope: "client",
-        config: false,
-        type: Object,
-        default: getDefaultCursorStates()
-    });
-
-    game.settings.register(MODULE_ID, "marquee-token-filter", {
-        scope: "client",
-        config: false,
-        type: String,
-        default: "all",
-        choices: MARQUEE_TOKEN_FILTERS
-    });
-
-    game.settings.register(MODULE_ID, "shared-cursor-size", {
-        name: "Shared Cursor Size",
-        hint: "The size (in pixels) at which other players' cursors appear on your screen.",
-        scope: "client",
-        config: true,
-        type: Number,
-        default: 16,
-        range: {
-            min: 16,
-            max: 128,
-            step: 4
-        },
-        onChange: (v) => updateOverlaySetting("cursorSize", v)
-    });
-
-    game.settings.register(MODULE_ID, "shared-cursor-opacity", {
-        name: "Shared Cursor Opacity",
-        hint: "The opacity of other players' cursors. Foundry's default color dot uses 0.35.",
-        scope: "client",
-        config: false,
-        type: Number,
-        default: 1,
-        range: {
-            min: 0.1,
-            max: 1,
-            step: 0.05
-        },
-        onChange: (v) => updateOverlaySetting("cursorOpacity", v)
-    });
-
-    game.settings.register(MODULE_ID, "show-cursor-names", {
-        name: "Show Shared Cursor Names (Overlay)",
-        hint: "Display the module's movable shared-cursor name label next to remote cursors. When enabled, Foundry's default white cursor name is automatically hidden to avoid duplicate names.",
-        scope: "client",
-        config: true,
-        type: Boolean,
-        default: false,
-        onChange: (v) => updateOverlaySetting("showNames", v)
-    });
-
-    game.settings.register(MODULE_ID, "cursor-name-position", {
-        name: "Shared Cursor Name Position",
-        hint: "Legacy local fallback. Use Cursor Settings to configure the per-player overlay name position.",
-        scope: "client",
-        config: false,
-        type: String,
-        default: "bottom-center",
-        choices: {
-            "bottom-center": "Bottom Center",
-            "bottom-right": "Bottom Right",
-            "top-center": "Top Center",
-            "right": "Right",
-            "custom": "Custom (set in Cursor Settings)"
-        },
-        onChange: (v) => {
+function getSettingOnChangeHandlers() {
+    return {
+        syncMiddleMouseListener,
+        overlayCursorSize: (v) => updateOverlaySetting("cursorSize", v),
+        overlayCursorOpacity: (v) => updateOverlaySetting("cursorOpacity", v),
+        overlayShowNames: (v) => updateOverlaySetting("showNames", v),
+        overlayFoundryCursorDisplay: (v) => updateOverlaySetting("foundryCursorDisplay", v),
+        overlayDisableCursorFade: (v) => updateOverlaySetting("disableCursorFade", v),
+        overlayIdleIdentityFade: (v) => updateOverlaySetting("idleIdentityFade", v),
+        overlayNamePosition: (v) => {
             updateOverlaySetting("namePosition", v);
             refreshSharedCursorImage();
-        }
-    });
-
-    game.settings.register(MODULE_ID, "cursor-name-offset", {
-        scope: "client",
-        config: false,
-        type: Object,
-        default: { x: 0, y: 1.2 },
-        onChange: (v) => {
+        },
+        overlayNameOffset: (v) => {
             updateOverlaySetting("nameOffset", v);
             refreshSharedCursorImage();
-        }
-    });
-
-    game.settings.register(MODULE_ID, "foundry-cursor-display", {
-        name: "Built-In Foundry Cursor Elements",
-        hint: "Control Foundry's own cursor name and color dot. If module overlay names are enabled, Foundry's default white name is suppressed automatically and this setting applies to the remaining native elements.",
-        scope: "client",
-        config: true,
-        type: String,
-        default: "both",
-        choices: {
-            "both": "Show Player Names & Color Dots",
-            "names-only": "Show Only Player Names",
-            "dots-only": "Show Only Color Dots",
-            "none": "Hide Both"
         },
-        onChange: (v) => updateOverlaySetting("foundryCursorDisplay", v)
-    });
-
-    game.settings.register(MODULE_ID, "disable-cursor-fade", {
-        name: "Disable Cursor Fade Out",
-        hint: "When enabled, the shared cursor and player name will remain visible at full opacity instead of fading out after the player goes idle.",
-        scope: "client",
-        config: false,
-        type: Boolean,
-        default: false,
-        onChange: (v) => updateOverlaySetting("disableCursorFade", v)
-    });
-
-    game.settings.register(MODULE_ID, "idle-identity-fade", {
-        name: "Show Identity on Idle",
-        hint: "When a player's cursor goes idle, fade in the hidden Foundry elements (name/dot) so you can still see who was there. Only applies when some Foundry elements are hidden above.",
-        scope: "client",
-        config: false,
-        type: Boolean,
-        default: false,
-        onChange: (v) => updateOverlaySetting("idleIdentityFade", v)
-    });
-
-    game.settings.register(MODULE_ID, "enable-cursor-sharing", {
-        name: "Share Cursor with Other Players",
-        hint: "Send your cursor position and cursor image to other connected players. Turning this off does not hide other players' shared cursors on your screen.",
-        scope: "client",
-        config: false,
-        type: Boolean,
-        default: true,
-    });
-
-    game.settings.register(MODULE_ID, "hide-my-cursor-from-others", {
-        name: "Hide My Cursor From Others",
-        hint: "Privacy mode. Hide your cursor from other players regardless of their viewer settings, including this module's shared cursor and Foundry's built-in cursor dot/name. Canvas pings are sent through this module so they do not reveal your cursor.",
-        scope: "client",
-        config: false,
-        type: Boolean,
-        default: false
-    });
-
-    game.settings.register(MODULE_ID, "cursor-sharing-mode", {
-        name: "Cursor Sharing Mode",
-        hint: "Choose whether to share your module cursor, only receive other module cursors, or hide your cursor from everyone including Foundry's built-in cursor display.",
-        scope: "client",
-        config: true,
-        type: String,
-        default: "share",
-        choices: CURSOR_SHARING_MODES,
-        onChange: () => {
+        syncCursorPrivacy: () => {
             if (canvas?.ready) initCursorOverlay();
             syncCursorPrivacy();
-        }
-    });
+        },
+        syncHiddenRemoteCursors: () => syncHiddenRemoteCursors()
+    };
+}
 
-    game.settings.register(MODULE_ID, "hidden-shared-cursor-users", {
-        scope: "client",
-        config: false,
-        type: Object,
-        default: {},
-        onChange: () => syncHiddenRemoteCursors()
-    });
+function registerRuntimeSettings() {
+    const onChangeHandlers = getSettingOnChangeHandlers();
+    // Maintenance scanner anchors for metadata-registered MCP gates:
+    // game.settings.register(MODULE_ID, "debug-mode")
+    // game.settings.register(MODULE_ID, "enableMcpDiagnostics")
+    for (const definition of SETTING_DEFINITIONS) {
+        game.settings.register(
+            MODULE_ID,
+            definition.key,
+            buildSettingRegistrationOptions(definition, onChangeHandlers)
+        );
+    }
+}
 
-    game.settings.register(MODULE_ID, "debug-mode", {
-        name: "Debug Mode",
-        hint: "Enable console logging for specific areas. Check browser console (F12) for output.",
-        scope: "client",
-        config: true,
-        type: String,
-        default: "off",
-        choices: DEBUG_MODES
-    });
+Hooks.once('init', () => {
+    try {
+        debugLog("cursor", "Initializing settings...");
+        registerRuntimeSettings();
 
-    game.settings.register(MODULE_ID, "enableMcpDiagnostics", {
-        name: "Enable MCP Diagnostics",
-        hint: "Advanced GM-only diagnostics for Foundry MCP Bridge workflows, including module validation, client refresh, and confirmed temporary fixture automation. Leave this disabled unless you are intentionally debugging or testing this module.",
-        scope: "world",
-        config: true,
-        restricted: true,
-        type: Boolean,
-        default: false
-    });
+        game.settings.registerMenu(MODULE_ID, "cursor-config-menu", {
+            name: "Configure Cursors & Overlay Name",
+            label: "Cursor Settings",
+            hint: "Upload custom cursor images for each state and position the module's shared overlay name label",
+            icon: "fas fa-mouse-pointer",
+            type: CursorConfigApp,
+            restricted: false
+        });
 
-    game.settings.register(MODULE_ID, "settings-version", {
-        scope: "client",
-        config: false,
-        type: Number,
-        default: 0
-    });
-
-    // Settings menu
-    game.settings.registerMenu(MODULE_ID, "cursor-config-menu", {
-        name: "Configure Cursors & Overlay Name",
-        label: "Cursor Settings",
-        hint: "Upload custom cursor images for each state and position the module's shared overlay name label",
-        icon: "fas fa-mouse-pointer",
-        type: CursorConfigApp,
-        restricted: false
-    });
-
-    game.settings.registerMenu(MODULE_ID, "advanced-settings-menu", {
-        name: "Advanced Settings & Diagnostics",
-        label: "Advanced Settings",
-        hint: "Tune advanced cursor behavior, marquee filters, per-player cursor visibility, and view diagnostics.",
-        icon: "fas fa-sliders",
-        type: AdvancedSettingsApp,
-        restricted: false
-    });
+        game.settings.registerMenu(MODULE_ID, "advanced-settings-menu", {
+            name: "Advanced Settings & Diagnostics",
+            label: "Advanced Settings",
+            hint: "Tune advanced cursor behavior, marquee filters, per-player cursor visibility, and view diagnostics.",
+            icon: "fas fa-sliders",
+            type: AdvancedSettingsApp,
+            restricted: false
+        });
+    } catch (e) {
+        console.error(`${MODULE_ID} | init hook failed:`, e);
+    }
 });
 
 Hooks.on('canvasReady', () => {
-    // Sync cached overlay settings on canvas load
-    updateOverlaySetting("cursorSize", game.settings.get(MODULE_ID, "shared-cursor-size"));
-    updateOverlaySetting("cursorOpacity", game.settings.get(MODULE_ID, "shared-cursor-opacity"));
-    updateOverlaySetting("showNames", game.settings.get(MODULE_ID, "show-cursor-names"));
-    updateOverlaySetting("foundryCursorDisplay", game.settings.get(MODULE_ID, "foundry-cursor-display"));
-    updateOverlaySetting("idleIdentityFade", game.settings.get(MODULE_ID, "idle-identity-fade"));
-    updateOverlaySetting("disableCursorFade", game.settings.get(MODULE_ID, "disable-cursor-fade"));
-    updateOverlaySetting("namePosition", game.settings.get(MODULE_ID, "cursor-name-position"));
-    updateOverlaySetting("nameOffset", game.settings.get(MODULE_ID, "cursor-name-offset"));
+    syncOverlaySettingsFromStore();
 
     syncMiddleMouseListener();
 
@@ -438,10 +215,18 @@ Hooks.on('canvasReady', () => {
 });
 
 Hooks.on('canvasTearDown', () => {
-    cleanupMarqueeListener();
-    cleanupCursorStateListeners();
-    stopCursorSharing();
-    destroyCursorOverlay();
+    const safely = (label, fn) => {
+        try {
+            fn();
+        } catch (e) {
+            console.error(`${MODULE_ID} | ${label} failed during canvas teardown:`, e);
+        }
+    };
+
+    safely("cleanupMarqueeListener", cleanupMarqueeListener);
+    safely("cleanupCursorStateListeners", cleanupCursorStateListeners);
+    safely("stopCursorSharing", stopCursorSharing);
+    safely("destroyCursorOverlay", destroyCursorOverlay);
 });
 
 Hooks.on('updateUser', (user, change) => {
@@ -454,15 +239,37 @@ Hooks.on('updateUser', (user, change) => {
 
 Hooks.on('userConnected', (user, connected) => {
     if (!connected || user.id === game.user.id || !isLocalCursorHidden()) return;
-    _originalBroadcastActivity?.call(game.user, { cursor: null }, { volatile: false });
+    broadcastNativeActivity({ cursor: null }, { volatile: false });
 });
 
 Hooks.once('ready', async () => {
-    await migrateSettings();
-    installCursorPrivacyPatch();
-    installApi();
-    syncCursorPrivacy();
-    const cursorConfig = getUserCursorConfig(game.user);
-    debugLog("cursor", "ready hook: user cursor profile summary =", summarizeCursorConfigForLog(cursorConfig));
-    await applyCursorStyles(cursorConfig.useCustomCursor);
+    try {
+        try {
+            await migrateSettings();
+        } catch (e) {
+            console.error(`${MODULE_ID} | Settings migration failed:`, e);
+        }
+
+        try {
+            installCursorPrivacyBroadcastWrapper({
+                isPrivateMode: isCursorPrivateMode,
+                emitHiddenPing: broadcastHiddenPing
+            });
+        } catch (e) {
+            console.error(`${MODULE_ID} | Cursor privacy broadcast wrapper install failed:`, e);
+        }
+
+        try {
+            installApi();
+        } catch (e) {
+            console.error(`${MODULE_ID} | API install failed:`, e);
+        }
+
+        syncCursorPrivacy();
+        const cursorConfig = getUserCursorConfig(game.user);
+        debugLog("cursor", "ready hook: user cursor profile summary =", summarizeCursorConfigForLog(cursorConfig));
+        await applyCursorStyles(cursorConfig.useCustomCursor);
+    } catch (e) {
+        console.error(`${MODULE_ID} | ready hook failed:`, e);
+    }
 });

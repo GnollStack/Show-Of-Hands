@@ -26,6 +26,7 @@ Hold the middle mouse button and drag to draw a selection rectangle on the canva
 - **Shift + drag** to add to your existing targets instead of replacing them
 - **Drag over empty space** without Shift to clear all targets
 - **Advanced token filters** can limit marquee targeting to hostile, neutral, friendly, or non-friendly tokens
+- **Advanced level filter** can optionally limit marquee targeting to the current viewed Scene Level when Foundry exposes one
 - **GM/co-GM** can target all tokens, including hidden ones
 - **Players** can only target tokens visible to them
 - Can be toggled independently from single-click targeting in module settings
@@ -152,6 +153,7 @@ Open **Advanced Settings** from the module settings to tune less-common behavior
 
 - Adjust shared cursor opacity and fade behavior
 - Filter marquee targeting by token disposition
+- Filter marquee targeting to the current viewed Scene Level when a scene level context is available
 - Hide specific players' shared cursors on your own client
 - View and copy diagnostics for troubleshooting
 
@@ -178,7 +180,7 @@ game.modules.get("target-the-beastie").api.diagnostics.actions.refreshClient({ d
 
 The normal hard refresh path from MCP is the bridge-level `reload-foundry-client` tool. The module-level `refreshClient({ delayMs })` action is also available so this module's own diagnostics gate can be tested.
 
-`validateV14Runtime()` is read-only and checks the V14 ApplicationV2, DialogV2, cursor, FilePicker, FormDataExtended, and canvas cursor contracts used by the module. It also reports Scene Levels observations when Foundry exposes them, but does not change marquee targeting behavior.
+`validateV14Runtime()` is read-only and checks the V14 ApplicationV2, DialogV2, cursor, FilePicker, FormDataExtended, and canvas cursor contracts used by the module. It also reports Scene Levels observations when Foundry exposes them; marquee targeting only uses those level observations when **Advanced Settings > Marquee Targeting > Level Filter** is set to **Viewed Level Only**.
 
 A diagnostic warning that legacy `cursor-states` differs from `flags.target-the-beastie.cursorConfig` is expected after per-user profiles exist. The user flag profile is canonical.
 
@@ -251,8 +253,11 @@ target-the-beastie/
     state-detection.js     Detects hover/targeting/panning states
     targeting.js           Single-token targeting logic
     marquee-select.js      Marquee box select and middle-mouse handler
+    scene-levels.js        Optional Scene Levels marquee filtering helpers
     cursor-overlay.js      PIXI rendering of shared remote cursors
     cursor-sharing.js      Socket communication for cursor position and image sharing
+    socket-messages.js     Socket message constants and payload validation
+    privacy-broadcast.js   Private-mode native broadcast wrapper/fallback
     diagnostics.js         Foundry-facing diagnostics actions
     diagnostics-core.js    Pure diagnostics validation and JSON-safe helpers
     mcp-diagnostics-automation.js Temporary MCP diagnostics fixture automation
@@ -308,7 +313,7 @@ target-the-beastie/
 - Verify **Middle-Mouse Actions** is set to **Drag Marquee** or **Click + Drag**
 - Make sure you drag at least `10` pixels to trigger the selection rectangle
 - Marquee selection can remain enabled even when middle-click targeting is disabled
-- Check **Advanced Settings > Marquee Targeting** if a token disposition filter is active
+- Check **Advanced Settings > Marquee Targeting** if a token disposition or level filter is active
 - Players can only target tokens visible to them
 - Set Debug Mode to **Marquee Box Select** to see selection details
 

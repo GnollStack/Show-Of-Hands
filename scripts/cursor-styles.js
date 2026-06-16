@@ -1,5 +1,6 @@
-import { MODULE_ID, STYLE_ID, debugLog } from './constants.js';
+import { CURSOR_SIZE_MAX, MODULE_ID, STYLE_ID, debugLog } from './constants.js';
 import { getUserCursorConfig } from './settings.js';
+import { computeCursorDisplaySize, computeResizeOutput, computeRotationOutput } from './cursor-geometry-core.js';
 
 export function loadImage(src) {
     return new Promise((resolve, reject) => {
@@ -10,7 +11,6 @@ export function loadImage(src) {
     });
 }
 
-const MAX_CURSOR_SIZE = 128;
 const POINTER_UI_SELECTOR = [
     "a",
     "button",
@@ -85,86 +85,47 @@ export async function getRotatedCursor(imageSrc, hotspotX, hotspotY, degrees, ta
     if (!hasRotation && !hasResize) return null;
 
     const img = await loadImage(imageSrc);
-    const nW = img.width;
-    const nH = img.height;
-
-    // Determine display size after resize
-    let displayW = nW;
-    let displayH = nH;
-    if (targetWidth > 0 && targetHeight > 0) {
-        displayW = targetWidth;
-        displayH = targetHeight;
-    } else if (targetWidth > 0) {
-        displayW = targetWidth;
-        displayH = Math.round(nH * (targetWidth / nW));
-    } else if (targetHeight > 0) {
-        displayH = targetHeight;
-        displayW = Math.round(nW * (targetHeight / nH));
-    }
+    const { width: displayW, height: displayH } = computeCursorDisplaySize(img.width, img.height, targetWidth, targetHeight);
 
     // Hotspot values are in output (display) image coordinate space; no extra scaling needed.
     if (!hasRotation) {
-        const maxDim = Math.max(displayW, displayH);
-        const scale = maxDim > MAX_CURSOR_SIZE ? MAX_CURSOR_SIZE / maxDim : 1;
-        const finalW = Math.ceil(displayW * scale);
-        const finalH = Math.ceil(displayH * scale);
-        const finalHotspotX = Math.max(0, Math.round(hotspotX * scale));
-        const finalHotspotY = Math.max(0, Math.round(hotspotY * scale));
+        const out = computeResizeOutput(displayW, displayH, hotspotX, hotspotY, CURSOR_SIZE_MAX);
 
-        debugLog("cursor", `getRotatedCursor: resize only -> ${finalW}x${finalH}, hotspot=(${finalHotspotX},${finalHotspotY})`);
+        debugLog("cursor", `getRotatedCursor: resize only -> ${out.width}x${out.height}, hotspot=(${out.hotspotX},${out.hotspotY})`);
 
         const canvas = document.createElement("canvas");
-        canvas.width = finalW;
-        canvas.height = finalH;
-        canvas.getContext("2d").drawImage(img, 0, 0, finalW, finalH);
+        canvas.width = out.width;
+        canvas.height = out.height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return null;
+        ctx.drawImage(img, 0, 0, out.width, out.height);
 
-        return { dataUrl: canvas.toDataURL("image/png"), hotspotX: finalHotspotX, hotspotY: finalHotspotY };
+        return { dataUrl: canvas.toDataURL("image/png"), hotspotX: out.hotspotX, hotspotY: out.hotspotY };
     }
 
-    const rad = (degrees * Math.PI) / 180;
-    const cos = Math.cos(rad);
-    const sin = Math.sin(rad);
+    const out = computeRotationOutput(displayW, displayH, hotspotX, hotspotY, degrees, CURSOR_SIZE_MAX);
 
-    let newW = Math.ceil(Math.abs(displayW * cos) + Math.abs(displayH * sin));
-    let newH = Math.ceil(Math.abs(displayW * sin) + Math.abs(displayH * cos));
-
-    const cx = displayW / 2;
-    const cy = displayH / 2;
-    const dx = hotspotX - cx;
-    const dy = hotspotY - cy;
-    let newHotspotX = newW / 2 + dx * cos - dy * sin;
-    let newHotspotY = newH / 2 + dx * sin + dy * cos;
-
-    const maxDim = Math.max(newW, newH);
-    const scale = maxDim > MAX_CURSOR_SIZE ? MAX_CURSOR_SIZE / maxDim : 1;
-
-    if (scale < 1) {
-        debugLog("cursor", `getRotatedCursor: rotated size ${newW}x${newH} exceeds ${MAX_CURSOR_SIZE}px, scaling by ${scale.toFixed(3)}`);
-        newHotspotX *= scale;
-        newHotspotY *= scale;
-        newW = Math.ceil(newW * scale);
-        newH = Math.ceil(newH * scale);
+    if (out.scale < 1) {
+        debugLog("cursor", `getRotatedCursor: rotated size exceeds ${CURSOR_SIZE_MAX}px, scaling by ${out.scale.toFixed(3)}`);
     }
 
     const canvas = document.createElement("canvas");
-    canvas.width = newW;
-    canvas.height = newH;
+    canvas.width = out.width;
+    canvas.height = out.height;
     const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
 
-    ctx.translate(newW / 2, newH / 2);
-    ctx.scale(scale, scale);
-    ctx.rotate(rad);
+    ctx.translate(out.width / 2, out.height / 2);
+    ctx.scale(out.scale, out.scale);
+    ctx.rotate(out.rad);
     ctx.drawImage(img, -displayW / 2, -displayH / 2, displayW, displayH);
 
-    const finalHotspotX = Math.max(0, Math.round(newHotspotX));
-    const finalHotspotY = Math.max(0, Math.round(newHotspotY));
-
-    debugLog("cursor", `getRotatedCursor: final size=${newW}x${newH}, hotspot=(${finalHotspotX},${finalHotspotY})`);
+    debugLog("cursor", `getRotatedCursor: final size=${out.width}x${out.height}, hotspot=(${out.hotspotX},${out.hotspotY})`);
 
     return {
         dataUrl: canvas.toDataURL("image/png"),
-        hotspotX: finalHotspotX,
-        hotspotY: finalHotspotY
+        hotspotX: out.hotspotX,
+        hotspotY: out.hotspotY
     };
 }
 

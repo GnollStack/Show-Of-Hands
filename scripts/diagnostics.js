@@ -1,6 +1,7 @@
 import { MODULE_ID, SOCKET_EVENT } from './constants.js';
 import {
     getMiddleMouseActionMode,
+    getMarqueeLevelFilter,
     getUserCursorConfig,
     isCursorBroadcastEnabled,
     isCursorPrivateMode,
@@ -20,6 +21,7 @@ import {
     jsonSafeClone,
     makeSmokeCheck,
     makeSmokeWarning,
+    runCoreSelfChecks,
     summarizeCursorConfig,
     validateCursorConfig,
     validateV14RuntimeSnapshot,
@@ -33,6 +35,8 @@ import {
     runAutomation as runDiagnosticsAutomation
 } from './mcp-diagnostics-automation.js';
 import { getShowCursorPermissionState } from './foundry-permissions.js';
+import { getMarqueeLevelFilterStatus } from './scene-levels.js';
+import { getCursorPrivacyBroadcastDebugState } from './privacy-broadcast.js';
 
 const DEFAULT_ASSET_LOAD_TIMEOUT_MS = 2000;
 const DEFAULT_CLIENT_DIAGNOSTICS_TIMEOUT_MS = 1000;
@@ -253,6 +257,7 @@ function getCursorControlSettings(settingsSnapshot) {
         middleMouseActions: settingsSnapshot["middle-mouse-actions"],
         clearTargetsOnEmptyClick: settingsSnapshot["clear-targets-on-empty-click"],
         marqueeTokenFilter: settingsSnapshot["marquee-token-filter"],
+        marqueeLevelFilter: settingsSnapshot["marquee-level-filter"],
         cursorSharingMode: settingsSnapshot["cursor-sharing-mode"],
         sharedCursorSize: settingsSnapshot["shared-cursor-size"],
         sharedCursorOpacity: settingsSnapshot["shared-cursor-opacity"],
@@ -401,6 +406,8 @@ function getSceneLevelInfo(scene = getActiveScene()) {
     const info = {
         sceneId: scene?.id ?? null,
         sceneName: scene?.name ?? null,
+        currentLevelId: canvas?.level?.id ?? null,
+        currentLevelName: canvas?.level?.name ?? null,
         hasAvailableLevels: false,
         availableLevelCount: 0,
         availableLevelIds: [],
@@ -598,6 +605,7 @@ function getClientDiagnosticsSnapshot({ getDebugState } = {}) {
             systemId: game.system?.id ?? null
         },
         settings: getCursorControlSettings(settingsSnapshot),
+        marqueeLevelFilter: getMarqueeLevelFilterStatus(),
         moduleState: jsonSafeClone(getDebugState?.() ?? null, { maxDepth: 4 })
     }, {
         maxDepth: 5,
@@ -740,6 +748,13 @@ function buildStatusPayload({ getDebugState } = {}) {
             showCursorPermission: getShowCursorPermissionState(game.user),
             cursorSharingPermissionBlocked: debugState?.cursorSharing?.permissionBlocked ?? null
         },
+        hardening: {
+            cursorPrivacyBroadcast: getCursorPrivacyBroadcastDebugState(),
+            marqueeLevelFilter: getMarqueeLevelFilterStatus({ filter: getMarqueeLevelFilter() }),
+            cursorSharingSocketListenerActive: debugState?.cursorSharing?.socketListenerActive ?? null,
+            nativeUserActivityListenerActive: debugState?.cursorSharing?.nativeUserActivityListenerActive ?? null,
+            cursorOverlayParentAvailable: debugState?.cursorOverlay?.parentAvailable ?? null
+        },
         debugState: jsonSafeClone(debugState, { maxDepth: 5 })
     };
 }
@@ -836,7 +851,10 @@ export function createDiagnostics({
                         "middle mouse mode resolves",
                         ["off", "target", "marquee", "both"].includes(getMiddleMouseActionMode()),
                         { middleMouseMode: getMiddleMouseActionMode() }
-                    )
+                    ),
+                    // Pure marquee/cursor-geometry self-checks: confirm the deployed
+                    // build's selection and geometry math matches expected output.
+                    ...runCoreSelfChecks()
                 ];
 
                 if (assetValidation.summary.inactiveIssues > 0) {

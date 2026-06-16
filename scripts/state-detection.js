@@ -4,9 +4,15 @@ import { getUserCursorConfig } from './settings.js';
 let _stateListenersActive = false;
 let _panningHandler = null;
 let _panningUpHandler = null;
+let _board = null;
+
+function _getBoard() {
+    if (!_board?.isConnected) _board = document.getElementById("board");
+    return _board;
+}
 
 function _logCursorState() {
-    const board = document.getElementById("board");
+    const board = _getBoard();
     const boardClasses = board?.classList;
 
     // Priority order matches CSS specificity: panning > targeting > hover > default
@@ -27,7 +33,7 @@ function _logCursorState() {
 
 function _onHoverToken(_token, isHovering) {
     debugLog("states", `hoverToken fired: isHovering=${isHovering}, token="${_token?.name || "unknown"}"`);
-    document.getElementById("board")?.classList.toggle("ttb-cursor-hover", isHovering);
+    _getBoard()?.classList.toggle("ttb-cursor-hover", isHovering);
     _logCursorState();
 }
 
@@ -35,7 +41,7 @@ function _onRenderSceneControls() {
     const activeTool = game.activeTool ?? ui.controls?.tool?.name ?? ui.controls?.activeTool ?? ui.controls?.tool;
     const isTargeting = activeTool === "target";
     debugLog("states", `renderSceneControls fired: activeTool="${activeTool}", isTargeting=${isTargeting}`);
-    document.getElementById("board")?.classList.toggle("ttb-cursor-targeting", isTargeting);
+    _getBoard()?.classList.toggle("ttb-cursor-targeting", isTargeting);
     _logCursorState();
 }
 
@@ -53,13 +59,13 @@ export function setupCursorStateListeners() {
         _panningHandler = (event) => {
             if (event.originalEvent.button === 2) {
                 debugLog("states", "panning: RIGHT-CLICK DOWN -> adding ttb-cursor-panning class");
-                document.getElementById("board")?.classList.add("ttb-cursor-panning");
+                _getBoard()?.classList.add("ttb-cursor-panning");
                 _logCursorState();
             }
         };
         _panningUpHandler = () => {
             debugLog("states", "panning: POINTER UP -> removing ttb-cursor-panning class");
-            document.getElementById("board")?.classList.remove("ttb-cursor-panning");
+            _getBoard()?.classList.remove("ttb-cursor-panning");
             _logCursorState();
         };
 
@@ -86,8 +92,9 @@ export function cleanupCursorStateListeners() {
         stage.off("pointerupoutside", _panningUpHandler);
     }
 
-    const board = document.getElementById("board");
+    const board = _getBoard();
     if (board) {
         board.classList.remove("ttb-cursor-hover", "ttb-cursor-targeting", "ttb-cursor-panning");
     }
+    _board = null;
 }

@@ -6,7 +6,16 @@ export const SOCKET_EVENT = `module.${MODULE_ID}`;
 export const CURSOR_SHARE_THROTTLE_MS = 33;
 export const CURSOR_FADE_TIMEOUT_MS = 5000;
 export const CURSOR_POINTER_SIZE = 16;
+export const CURSOR_SIZE_MAX = 128;
 export const CURSOR_LERP_SPEED = 0.1;
+
+export const SOCKET_MESSAGE_TYPES = Object.freeze({
+    CURSOR_MOVE: "cursorMove",
+    CURSOR_IMAGE: "cursorImage",
+    CURSOR_HIDDEN: "cursorHidden",
+    HIDDEN_PING: "hiddenPing",
+    REQUEST_CURSOR_IMAGE: "requestCursorImage"
+});
 
 export const CURSOR_STATE_DEFINITIONS = Object.freeze([
     {
@@ -135,6 +144,11 @@ export const CURSOR_STATE_LABELS = Object.freeze(
 export const CURSOR_STATE_DETAILS = Object.freeze(
     Object.fromEntries(CURSOR_STATE_DEFINITIONS.map(state => [state.key, state]))
 );
+
+// Pixels-per-offset-unit used when projecting the overlay name label onto the
+// config preview image (cursor-config-app.js). Offsets are stored as multiples
+// of the image half-size, so the preview multiplies them by this factor.
+export const NAME_LABEL_PREVIEW_SCALE = 16;
 
 export const NAME_POSITION_PRESETS = {
     "bottom-center": { anchorX: 0.5, anchorY: 0, offsetX: 0, offsetY: 1.2 },
