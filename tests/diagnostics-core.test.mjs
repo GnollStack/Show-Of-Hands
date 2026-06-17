@@ -40,6 +40,7 @@ test('valid cursor profile fixture passes validation', async () => {
     assert.equal(result.valid, true);
     assert.deepEqual(result.errors, []);
     assert.equal(result.summary.stateCount, 9);
+    assert.equal(result.summary.defaultUsesNativeFallback, true);
 });
 
 test('bad cursor profile fixture reports errors without mutation', async () => {
@@ -211,9 +212,11 @@ test('cursor state comparison distinguishes legacy settings from the canonical p
 
 test('cursor asset candidates mark only canonical runtime assets as active', async () => {
     const fixture = await readFixture('cursor-profile.valid.json');
+    const profile = structuredClone(fixture);
+    profile.cursorStates.default.image = 'worlds/demo/cursors/default.png';
     const candidates = collectCursorAssetCandidates({
-        currentProfile: fixture,
-        legacyCursorStates: fixture.cursorStates,
+        currentProfile: profile,
+        legacyCursorStates: profile.cursorStates,
         legacyUseCustomCursor: true
     });
 
@@ -338,7 +341,7 @@ test('settings snapshot validation catches invalid choices', () => {
         'hidden-shared-cursor-users': {},
         'debug-mode': 'off',
         enableMcpDiagnostics: false,
-        'settings-version': 4
+        'settings-version': 5
     };
 
     const result = validateSettingsSnapshot(snapshot);
@@ -408,12 +411,14 @@ test('ApplicationV2 command actions are wired in templates and settings apps', a
         'resetAll',
         'resetProfile',
         'selectCursorTab',
-        'setNamePreset',
-        'useAomDefault'
+        'setNamePreset'
     ]) {
         assert.ok(cursorTemplate.includes(`data-action="${action}"`), `cursor template is missing ${action}`);
         assert.ok(cursorApp.includes(`${action}: CursorConfigApp.#`), `cursor app is missing ${action} handler wiring`);
     }
+
+    assert.equal(cursorTemplate.includes('useAomDefault'), false);
+    assert.equal(cursorApp.includes('useAomDefault'), false);
 
     for (const action of ['copyDiagnostics', 'refreshDiagnostics']) {
         assert.ok(advancedTemplate.includes(`data-action="${action}"`), `advanced template is missing ${action}`);
@@ -440,7 +445,7 @@ test('runCoreSelfChecks all pass and produce a clean smoke report', () => {
         assert.equal(check.status, 'pass', `core self-check failed: ${check.name}`);
     }
 
-    // The MCP runSmokeTests action embeds these; the report must stay clean and document-free.
+    // MCP runSmokeTests embeds these; keep the report clean and document-free.
     const report = buildSmokeReport(checks);
     assert.equal(report.passed, true);
     assert.equal(report.createsDocuments, false);

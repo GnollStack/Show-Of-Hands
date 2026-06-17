@@ -1,4 +1,4 @@
-import { CURSOR_SIZE_MAX, CURSOR_STATE_KEYS, DEFAULT_CURSOR_PATH } from './constants.js';
+import { CURSOR_SIZE_MAX, CURSOR_STATE_KEYS } from './constants.js';
 import { SETTING_CHOICES, SETTING_KEYS, SETTING_RANGES } from './settings.js';
 import { normalizeRect, rectIntersectsBounds, computeMarqueeTargetUpdate } from './marquee-core.js';
 import { computeResizeOutput, computeRotationOutput, computeOverlayNamePlacement, stepCursorLerp } from './cursor-geometry-core.js';
@@ -219,9 +219,6 @@ export function validateCursorConfig(config) {
         }
 
         if (typeof state.image !== "string") errors.push(`${path}.image must be a string.`);
-        if (key === "default" && config.useCustomCursor && !state.image) {
-            errors.push(`${path}.image is required when custom cursors are enabled.`);
-        }
 
         validateNumericRange(errors, `${path}.hotspotX`, state.hotspotX, 0, HOTSPOT_MAX);
         validateNumericRange(errors, `${path}.hotspotY`, state.hotspotY, 0, HOTSPOT_MAX);
@@ -250,7 +247,7 @@ export function validateCursorConfig(config) {
         if (!isFiniteNumber(config.nameOffset.y)) errors.push("nameOffset.y must be a finite number.");
     }
 
-    const defaultImageMatches = states.default?.image === DEFAULT_CURSOR_PATH;
+    const defaultUsesNativeFallback = states.default?.image === "";
     return {
         valid: errors.length === 0,
         errors,
@@ -258,7 +255,7 @@ export function validateCursorConfig(config) {
         summary: {
             stateCount: Object.keys(states).length,
             enabledStates,
-            defaultImageMatchesBuiltIn: defaultImageMatches
+            defaultUsesNativeFallback
         }
     };
 }
@@ -564,10 +561,8 @@ export function buildSmokeReport(checks) {
     };
 }
 
-// Deterministic self-checks for the pure marquee and cursor-geometry helpers.
-// They run identically offline (npm test / npm run smoke) and live via the MCP
-// runSmokeTests action, so the bridge can confirm the geometry/selection math
-// behaves in the deployed build. All checks are pure and create no documents.
+// Small self-checks shared by npm smoke and the live diagnostics action.
+// Keep them pure so the bridge can run them without touching documents.
 export function runCoreSelfChecks() {
     const approx = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
     const sameSet = (actual, expected) => {
@@ -576,14 +571,14 @@ export function runCoreSelfChecks() {
         return a.length === b.length && a.every((value, index) => value === b[index]);
     };
 
-    // marquee-core: AABB intersection with strict edge semantics.
+    // Marquee rectangle intersection uses strict edge rules.
     const rect = normalizeRect(0, 0, 100, 100);
     const intersectionOk =
         rectIntersectsBounds(rect, { left: 50, top: 50, right: 150, bottom: 150 }) === true &&
         rectIntersectsBounds(rect, { left: 200, top: 0, right: 300, bottom: 100 }) === false &&
         rectIntersectsBounds(rect, { left: 100, top: 0, right: 200, bottom: 100 }) === false;
 
-    // marquee-core: replace vs. additive vs. unchanged target diffs.
+    // Target diff covers replace, Shift-add, and no-op selections.
     const replace = computeMarqueeTargetUpdate({ current: ["a", "b"], inBox: ["b", "c"], baseline: ["a", "b"], additive: false });
     const additive = computeMarqueeTargetUpdate({ current: ["a"], inBox: ["c"], baseline: ["a", "b"], additive: true });
     const unchanged = computeMarqueeTargetUpdate({ current: ["a", "b"], inBox: ["a", "b"], baseline: ["a", "b"], additive: false });
@@ -592,25 +587,25 @@ export function runCoreSelfChecks() {
         sameSet(additive.desired, ["a", "b", "c"]) && sameSet(additive.toAdd, ["b", "c"]) && additive.toRemove.length === 0 &&
         unchanged.toAdd.length === 0 && unchanged.toRemove.length === 0;
 
-    // cursor-geometry-core: resize clamps oversized images and scales the hotspot.
+    // Resize keeps oversized cursor images under the cap and moves the hotspot.
     const resize = computeResizeOutput(256, 128, 128, 64, CURSOR_SIZE_MAX);
     const resizeOk = resize.width === 128 && resize.height === 64 &&
         resize.hotspotX === 64 && resize.hotspotY === 32 && resize.scale === 0.5;
 
-    // cursor-geometry-core: rotation identity at 0° and clamp of oversized rotated boxes.
+    // Rotation keeps 0 degrees stable and clamps oversized rotated boxes.
     const rot0 = computeRotationOutput(100, 100, 10, 20, 0, CURSOR_SIZE_MAX);
     const rotIdentityOk = rot0.width === 100 && rot0.height === 100 &&
         rot0.hotspotX === 10 && rot0.hotspotY === 20 && rot0.scale === 1;
     const rotBig = computeRotationOutput(100, 100, 0, 0, 45, CURSOR_SIZE_MAX);
     const rotClampOk = rotBig.scale < 1 && rotBig.width <= CURSOR_SIZE_MAX && rotBig.height <= CURSOR_SIZE_MAX;
 
-    // cursor-geometry-core: overlay name placement resolves a preset and rejects unknowns.
+    // Overlay name placement accepts known presets and rejects unknown ones.
     const placePreset = computeOverlayNamePlacement({ namePosition: "bottom-center", scale: 16, hasSprite: false });
     const placeUnknown = computeOverlayNamePlacement({ namePosition: "definitely-not-a-preset", scale: 16, hasSprite: false });
     const placementOk = !!placePreset && placePreset.anchorX === 0.5 && placePreset.anchorY === 0 &&
         approx(placePreset.posY, 19.2) && placeUnknown === null;
 
-    // cursor-geometry-core: movement interpolation snaps within threshold and steps beyond it.
+    // Cursor movement snaps when close and eases when farther away.
     const lerpSnap = stepCursorLerp(0, 0, 0.1, 0.1, 0.5, 0.1);
     const lerpStep = stepCursorLerp(0, 0, 10, 0, 0.5, 0.1);
     const lerpOk = approx(lerpSnap.x, 0.1) && approx(lerpSnap.y, 0.1) && approx(lerpStep.x, 1) && approx(lerpStep.y, 0);

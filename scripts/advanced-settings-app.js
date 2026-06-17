@@ -1,3 +1,9 @@
+/**
+ * @file advanced-settings-app.js
+ * @description ApplicationV2 sheet for Show of Hands advanced cursor,
+ * marquee, visibility, and diagnostics settings.
+ */
+
 import { MODULE_ID, MODULE_TITLE } from './constants.js';
 import { getHiddenSharedCursorUserIds, MARQUEE_LEVEL_FILTERS, MARQUEE_TOKEN_FILTERS } from './settings.js';
 

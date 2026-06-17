@@ -1,7 +1,24 @@
+/**
+ * @file settings.js
+ * @description Foundry setting definitions, legacy migration helpers, and
+ * per-user cursor profile normalization for Show of Hands.
+ */
+
 import { MODULE_ID, LEGACY_MODULE_ID, DEBUG_MODES, DEFAULT_CURSOR_PATH, DEFAULT_HOTSPOT, CURSOR_SIZE_MAX, CURSOR_STATE_KEYS, debugLog } from './constants.js';
 
-const CURRENT_SETTINGS_VERSION = 4;
+const CURRENT_SETTINGS_VERSION = 5;
 export const USER_CURSOR_CONFIG_FLAG = "cursorConfig";
+
+const REMOVED_BUNDLED_CURSOR_PATHS = Object.freeze(new Set([
+    `modules/${MODULE_ID}/assets/AOM_cursor_pointer.png`,
+    `modules/${MODULE_ID}/assets/AOM_cursor_pointer_32x32.png`,
+    `modules/${LEGACY_MODULE_ID}/assets/AOM_cursor_pointer.png`,
+    `modules/${LEGACY_MODULE_ID}/assets/AOM_cursor_pointer_32x32.png`
+]));
+
+function isRemovedBundledCursorPath(value) {
+    return typeof value === "string" && REMOVED_BUNDLED_CURSOR_PATHS.has(value);
+}
 
 export const MIDDLE_MOUSE_ACTION_MODES = Object.freeze({
     off: "Off",
@@ -59,6 +76,8 @@ function hasAnyStoredClientSetting(keys) {
 }
 
 function getStoredSettingsVersion() {
+    // Very old installs have no settings-version, so read the old keys to pick
+    // the right migration path.
     if (!hasStoredClientSetting("settings-version")) {
         if (hasStoredClientSetting("cursor-states")) return 2;
         if (hasAnyStoredClientSetting([
@@ -78,14 +97,28 @@ function getStoredSettingsVersion() {
 }
 
 function migrateLegacyModulePaths(value) {
+    // Cursor image paths may still point at the old module folder after a rename.
+    // Scrub only the bundled files we removed; keep user-picked FilePicker paths.
     if (typeof value === "string") {
+        if (isRemovedBundledCursorPath(value)) return "";
         return value.replaceAll(`modules/${LEGACY_MODULE_ID}/`, `modules/${MODULE_ID}/`);
     }
     if (Array.isArray(value)) return value.map(migrateLegacyModulePaths);
     if (value && typeof value === "object") {
-        return Object.fromEntries(
+        const hasRemovedImage = isRemovedBundledCursorPath(value.image);
+        const migrated = Object.fromEntries(
             Object.entries(value).map(([key, child]) => [key, migrateLegacyModulePaths(child)])
         );
+        if (!hasRemovedImage) return migrated;
+        return {
+            ...migrated,
+            image: "",
+            hotspotX: DEFAULT_HOTSPOT.x,
+            hotspotY: DEFAULT_HOTSPOT.y,
+            rotation: 0,
+            width: 0,
+            height: 0
+        };
     }
     return value;
 }
@@ -93,6 +126,7 @@ function migrateLegacyModulePaths(value) {
 async function migrateLegacyNamespaceSettings() {
     if (!game.settings?.storage?.get) return;
 
+    // Copy old namespace values only when this install has not saved the new key yet.
     for (const definition of SETTING_DEFINITIONS) {
         const scope = definition.scope ?? "client";
         const current = getStoredSettingData(scope, MODULE_ID, definition.key);
@@ -136,6 +170,8 @@ export function getDefaultUserCursorConfig() {
 }
 
 export const SETTING_DEFINITIONS = Object.freeze([
+    // Hidden legacy settings stay registered so migration/fallback reads remain
+    // possible without exposing outdated controls in Foundry's settings UI.
     { key: "use-aom-cursor", scope: "client", config: false, type: Boolean, defaultValue: true },
     { key: "cursor-hotspot-x", scope: "client", config: false, type: Number, defaultValue: DEFAULT_HOTSPOT.x },
     { key: "cursor-hotspot-y", scope: "client", config: false, type: Number, defaultValue: DEFAULT_HOTSPOT.y },
@@ -390,10 +426,8 @@ function clampInt(value, min, max, fallback) {
     return Math.min(max, Math.max(min, n));
 }
 
-// Clamp a single cursor state's numeric fields to the ranges the UI enforces, so
-// hand-edited flags, macros, or stale data can never persist out-of-range values.
-// width/height of 0 mean "use the original image size"; any positive value is
-// clamped to [1, CURSOR_SIZE_MAX].
+// Clamp a cursor state's numbers to the same ranges the UI uses. A width/height
+// of 0 means "use the original image size"; positive sizes stay within the cap.
 function clampCursorState(state, defaults) {
     if (!state || typeof state !== "object") return state;
     const clampSize = (value) => {
@@ -410,6 +444,7 @@ function clampCursorState(state, defaults) {
 }
 
 export function normalizeCursorStates(states = {}) {
+    states = migrateLegacyModulePaths(states ?? {});
     const defaults = getDefaultCursorStates();
     const merged = foundry.utils.mergeObject(defaults, states ?? {}, {
         inplace: false,
@@ -436,7 +471,7 @@ export function normalizeUserCursorConfig(config = {}) {
     });
 
     // Older drafts and legacy settings used "states"; the persisted flag uses
-    // "cursorStates" to avoid confusion with other module settings.
+    // "cursorStates" to avoid confusion with Foundry setting names.
     merged.cursorStates = normalizeCursorStates(config.cursorStates ?? config.states ?? merged.cursorStates);
     merged.useCustomCursor = config.useCustomCursor ?? defaults.useCustomCursor;
     merged.namePosition = config.namePosition || defaults.namePosition;
@@ -591,19 +626,13 @@ export async function migrateSettings() {
     if (version < 2) {
         const completed = await runStep(2, async () => {
             let oldEnabled = true;
-            let oldHotspotX = DEFAULT_HOTSPOT.x;
-            let oldHotspotY = DEFAULT_HOTSPOT.y;
 
             try { oldEnabled = game.settings.get(MODULE_ID, "use-aom-cursor"); } catch { /* legacy setting may not exist */ }
-            try { oldHotspotX = game.settings.get(MODULE_ID, "cursor-hotspot-x"); } catch { /* legacy setting may not exist */ }
-            try { oldHotspotY = game.settings.get(MODULE_ID, "cursor-hotspot-y"); } catch { /* legacy setting may not exist */ }
 
-            const states = getDefaultCursorStates();
-            states.default.hotspotX = oldHotspotX;
-            states.default.hotspotY = oldHotspotY;
-
+            // v1 only had an on/off bundled cursor toggle. The art is gone now,
+            // so keep the preference and fall back to native cursor defaults.
             await game.settings.set(MODULE_ID, "use-custom-cursor", oldEnabled);
-            await game.settings.set(MODULE_ID, "cursor-states", states);
+            await game.settings.set(MODULE_ID, "cursor-states", getDefaultCursorStates());
         });
         if (!completed) return;
     }
@@ -643,5 +672,13 @@ export async function migrateSettings() {
         if (!completed) return;
     }
 
+
+    if (version < 5) {
+        const completed = await runStep(5, async () => {
+            const existingStates = game.settings.get(MODULE_ID, "cursor-states") ?? {};
+            await game.settings.set(MODULE_ID, "cursor-states", normalizeCursorStates(existingStates));
+        });
+        if (!completed) return;
+    }
     debugLog("cursor", `Migration complete (v${version}).`);
 }

@@ -1,3 +1,9 @@
+/**
+ * @file cursor-sharing.js
+ * @description Transient socket/native activity bridge for shared cursor
+ * images, positions, hidden pings, and visibility permission state.
+ */
+
 import { MODULE_ID, SOCKET_EVENT, SOCKET_MESSAGE_TYPES, CURSOR_SHARE_THROTTLE_MS, debugLog } from './constants.js';
 import { updateRemoteCursor, updateRemoteCursorImage, removeRemoteCursor } from './cursor-overlay.js';
 import { loadImage, getRotatedCursor } from './cursor-styles.js';
@@ -5,7 +11,8 @@ import { canBroadcastVisibleCursor, getShowCursorPermissionState } from './found
 import { getHiddenSharedCursorUserIds, getUserCursorConfig, isSharedCursorUserVisible } from './settings.js';
 import { isKnownSocketMessageType, validateSocketMessage } from './socket-messages.js';
 
-// foundry deafult C:\Program Files\Foundry Virtual Tabletop\resources\app\client\canvas\containers\elements\cursor.mjs
+// Foundry's native cursor code lives in client/canvas/containers/elements/cursor.mjs.
+// Mirror its coordinates when available so our overlay stays on the same dot.
 
 let _active = false;
 let _broadcastEnabled = true;
@@ -54,6 +61,8 @@ function _isInboundRateLimited(userId, bucket, minIntervalMs) {
 }
 
 function _syncVisibleCursorPermission() {
+    // Foundry v14 can deny visible cursor broadcasting by permission. When that
+    // happens we clear our cached image and tell peers to hide this overlay too.
     const blocked = _broadcastEnabled && !canBroadcastVisibleCursor(globalThis.game?.user);
     const becameBlocked = blocked && !_permissionBlocked;
     const becameAllowed = !blocked && _permissionBlocked;
@@ -92,7 +101,7 @@ export function startCursorSharing(broadcastEnabled = true) {
     }
     _active = true;
 
-    // Listen for our module's socket messages (cursor images + position)
+    // Module socket: images, positions, visibility, and hidden pings.
     game.socket.on(SOCKET_EVENT, _onSocketMessage);
     _socketListenerActive = true;
     debugLog("sharing", `Registered socket listener on "${SOCKET_EVENT}"`);
@@ -100,10 +109,8 @@ export function startCursorSharing(broadcastEnabled = true) {
     _nativeUserActivityListenerActive = true;
     debugLog("sharing", "Registered Foundry userActivity listener for cursor alignment");
 
-    // Register a mouse move handler using Foundry's canvas system.
-    // This receives canvas coordinates directly from PIXI pointer events.
-    // Registration is permanent (no unregister API), so we only do it once
-    // and gate on _active inside the handler.
+    // Foundry gives canvas coordinates here, but no unregister API. Register
+    // once, then gate behavior with _active/_broadcastEnabled.
     if (!_registered) {
         canvas.registerMouseMoveHandler(_onCanvasMouseMove, 0);
         _registered = true;
@@ -112,7 +119,7 @@ export function startCursorSharing(broadcastEnabled = true) {
 
     _userConnectedHookId = Hooks.on("userConnected", _onUserConnected);
 
-    // Build and broadcast our custom cursor image only when local sharing is enabled and permitted by Foundry.
+    // Only build and broadcast cursor art when sharing is on and Foundry allows it.
     if (_broadcastEnabled && _syncVisibleCursorPermission().allowed) _broadcastCursorImage();
     _requestCursorImages();
 
@@ -142,6 +149,8 @@ export function setCursorBroadcastEnabled(enabled) {
 }
 
 export function broadcastHiddenPing(position, pingData) {
+    // Private mode pings ride over the module socket so Foundry does not receive
+    // the local user's native cursor coordinates.
     game.socket.emit(SOCKET_EVENT, {
         type: SOCKET_MESSAGE_TYPES.HIDDEN_PING,
         userId: game.user.id,
@@ -206,7 +215,7 @@ export function getCursorSharingDebugState() {
 }
 
 /**
- * Call this when the user changes their cursor settings to re-broadcast.
+ * Rebuild and rebroadcast the local cursor image after profile changes.
  */
 export async function refreshSharedCursorImage() {
     if (!_active || !_broadcastEnabled) return;
@@ -244,7 +253,8 @@ async function _broadcastCursorImage() {
     if (!_broadcastEnabled) return;
     if (!_syncVisibleCursorPermission().allowed) return;
 
-    // Guard against concurrent async calls — queue a re-run instead of interleaving
+    // Cursor image processing is async. Queue one follow-up run instead of
+    // interleaving multiple canvas/data-url builds for the same user.
     if (_broadcastInFlight) {
         _broadcastQueued = true;
         return;
@@ -276,7 +286,7 @@ async function _broadcastCursorImage() {
         const targetWidth = def.width || 0;
         const targetHeight = def.height || 0;
 
-        // Process the cursor image (apply rotation/resize if needed)
+        // Resize/rotation changes what peers draw, so send processed image data.
         if (rotation !== 0 || targetWidth > 0 || targetHeight > 0) {
             const processed = await getRotatedCursor(def.image, def.hotspotX, def.hotspotY, rotation, targetWidth, targetHeight);
             if (processed) {
@@ -288,7 +298,8 @@ async function _broadcastCursorImage() {
             }
         }
 
-        // No rotation/resize — convert original image to data URL
+        // No rotation/resize: convert the original image to a data URL so peers
+        // do not need filesystem access to the same asset path.
         const img = await loadImage(def.image);
         const cvs = document.createElement('canvas');
         cvs.width = img.width;
@@ -319,7 +330,7 @@ function _emitCursorImage(dataUrl, hotspotX, hotspotY) {
     if (!_broadcastEnabled) return;
     if (!_syncVisibleCursorPermission().allowed) return;
 
-    // Include name position settings so other clients position the label correctly
+    // Send the owner's name placement with the image so every client agrees.
     let namePosition = "bottom-center";
     let nameOffset = { x: 0, y: 1.2 };
     try {
@@ -406,7 +417,7 @@ function _onSocketMessage(data) {
         if (data.userId === game.user.id) return;
         if (data.targetUserId && data.targetUserId !== game.user.id) return;
         if (!_broadcastEnabled) return;
-        // Another user is asking us for our cursor image
+        // Another user is asking us for our current cursor image.
         if (_broadcastEnabled && _syncVisibleCursorPermission().allowed) _emitCursorImage(_cachedCursorDataUrl, _cachedHotspotX, _cachedHotspotY);
         else _emitCursorHidden();
     }
@@ -452,11 +463,10 @@ function _onUserConnected(user, connected) {
         removeRemoteCursor(user.id);
         debugLog("sharing", `User disconnected: ${user.name}`);
     } else {
-        // New user joined — send them our cursor image
+        // Peer joined; exchange cursor images once visibility checks pass.
         if (_broadcastEnabled && _syncVisibleCursorPermission().allowed) {
             _emitCursorImage(_cachedCursorDataUrl, _cachedHotspotX, _cachedHotspotY);
         }
-        // Request their cursor image
         if (_canShowRemoteSharedCursor(user.id)) _requestCursorImages(user.id);
         debugLog("sharing", `User connected: ${user.name}, exchanging cursor images`);
     }

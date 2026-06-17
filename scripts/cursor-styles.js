@@ -1,3 +1,9 @@
+/**
+ * @file cursor-styles.js
+ * @description Builds and applies Show of Hands cursor CSS from the local
+ * user's cursor profile.
+ */
+
 import { CURSOR_SIZE_MAX, MODULE_ID, STYLE_ID, debugLog } from './constants.js';
 import { getUserCursorConfig } from './settings.js';
 import { computeCursorDisplaySize, computeResizeOutput, computeRotationOutput } from './cursor-geometry-core.js';
@@ -87,7 +93,7 @@ export async function getRotatedCursor(imageSrc, hotspotX, hotspotY, degrees, ta
     const img = await loadImage(imageSrc);
     const { width: displayW, height: displayH } = computeCursorDisplaySize(img.width, img.height, targetWidth, targetHeight);
 
-    // Hotspot values are in output (display) image coordinate space; no extra scaling needed.
+    // Hotspot values are already in output image coordinates after resize math.
     if (!hasRotation) {
         const out = computeResizeOutput(displayW, displayH, hotspotX, hotspotY, CURSOR_SIZE_MAX);
 
@@ -170,6 +176,8 @@ function buildCursorRule(selector, cursorValue, important = false) {
 }
 
 function restoreFoundryCursorVariables() {
+    // Foundry owns the root cursor variables. Restore its defaults first, then
+    // layer Show of Hands overrides inline on documentElement below.
     if (typeof game?.configureCursors === "function") {
         game.configureCursors();
         debugLog("cursor", "restoreFoundryCursorVariables: reset root cursor vars through game.configureCursors()");
@@ -210,6 +218,7 @@ export async function applyCursorStyles(isEnabled) {
     for (const nativeState of ROOT_CURSOR_VARIABLES) {
         const value = await buildCursorValue(states[nativeState.key], nativeState.fallback, nativeState.disabledFallback);
         if (applyId !== _applyCursorSerial) {
+            // A newer settings change started while image work was in flight.
             debugLog("cursor", "applyCursorStyles: stale async apply cancelled before root vars");
             return;
         }

@@ -1,3 +1,9 @@
+/**
+ * @file cursor-overlay.js
+ * @description PIXI overlay for rendering remote Show of Hands cursors inside
+ * Foundry's screen-space cursor layer.
+ */
+
 import { MODULE_ID, CURSOR_POINTER_SIZE, CURSOR_FADE_TIMEOUT_MS, CURSOR_LERP_SPEED, debugLog } from './constants.js';
 import { computeOverlayNamePlacement, stepCursorLerp } from './cursor-geometry-core.js';
 
@@ -9,7 +15,8 @@ let _tickerCallback = null;
 let _imageLoadSerial = 0;
 const MOVEMENT_SOURCE_NATIVE = "native";
 
-// Cached settings — updated via onChange callbacks, avoids per-frame game.settings.get()
+// Settings cache filled by onChange callbacks. The ticker reads this instead
+// of calling game.settings every frame.
 const _settings = {
     cursorSize: 16,
     cursorOpacity: 1,
@@ -23,13 +30,15 @@ const _settings = {
 
 export function updateOverlaySetting(key, value) {
     _settings[key] = value;
-    // Invalidate foundry cursor cache when display setting changes
+    // Foundry owns its cursor PIXI children. Mark the cache dirty only when a
+    // display setting can affect them.
     if (key === "foundryCursorDisplay") {
         _lastFoundryNames = null;
         _lastFoundryDots = null;
         _markFoundryChildrenDirty();
     }
-    // Invalidate name positioning when name-related settings change
+    // Name placement depends on owner profile plus viewer settings, so each
+    // entry gets recomputed lazily.
     if (key === "namePosition" || key === "nameOffset" || key === "showNames") {
         for (const [, entry] of _cursors) entry.nameDirty = true;
     }
@@ -87,6 +96,8 @@ export function updateRemoteCursor(userId, worldX, worldY, { source = "module" }
 
     if (source === MOVEMENT_SOURCE_NATIVE) {
         _pendingPositions.set(userId, { x: worldX, y: worldY });
+        // Native movement by itself is not enough to show our fallback arrow.
+        // Wait for module cursor metadata or module movement.
         if (!_cursors.has(userId) && !_pendingImages.has(userId)) return;
     }
 
@@ -96,6 +107,8 @@ export function updateRemoteCursor(userId, worldX, worldY, { source = "module" }
         return;
     }
 
+    // When Foundry native movement is available, trust it over delayed module
+    // packets so the overlay stays with Foundry's dot.
     if (source !== MOVEMENT_SOURCE_NATIVE && entry.nativeMovementSeen) return;
     if (source === MOVEMENT_SOURCE_NATIVE) entry.nativeMovementSeen = true;
 
@@ -107,7 +120,7 @@ export function updateRemoteCursor(userId, worldX, worldY, { source = "module" }
     entry.container.visible = true;
     entry.lastUpdate = Date.now();
 
-    // On first update, snap directly to position
+    // First update snaps to avoid lerping in from the origin.
     if (!entry.initialized) {
         entry.currentX = worldX;
         entry.currentY = worldY;
@@ -123,7 +136,8 @@ export function updateRemoteCursorImage(userId, imageDataUrl, hotspotX, hotspotY
     _ensureOverlayContainer(false);
     const entry = _cursors.get(userId);
     if (!_container || !entry) {
-        // Store pending image data for when cursor is created
+        // Image data can arrive before movement creates the PIXI entry. Park it
+        // so the first real cursor gets the right art.
         _pendingImages.set(userId, { imageDataUrl, hotspotX, hotspotY, playerName, namePosition, nameOffset });
         const pendingPosition = _pendingPositions.get(userId);
         if (pendingPosition) updateRemoteCursor(userId, pendingPosition.x, pendingPosition.y, { source: MOVEMENT_SOURCE_NATIVE });
@@ -132,7 +146,7 @@ export function updateRemoteCursorImage(userId, imageDataUrl, hotspotX, hotspotY
 
     _setCursorLabel(entry, playerName);
 
-    // Store per-cursor name position from the cursor owner's settings
+    // Use the cursor owner's saved name placement.
     if (namePosition) entry.namePosition = namePosition;
     if (nameOffset) entry.nameOffset = nameOffset;
     entry.nameDirty = true;
@@ -164,7 +178,7 @@ function _getOrCreateCursor(userId) {
     const color = user.color;
     const s = CURSOR_POINTER_SIZE;
 
-    // Arrow pointer shape (default fallback)
+    // Fallback arrow shown when a peer has no custom cursor image.
     const g = new PIXI.Graphics();
     g.beginFill(color, 0.85);
     g.lineStyle(1, 0x000000, 0.5);
@@ -175,7 +189,7 @@ function _getOrCreateCursor(userId) {
     g.closePath();
     g.endFill();
 
-    // Name label
+    // Show of Hands overlay name label.
     const text = new PIXI.Text(user.name, {
         fontFamily: "Signika",
         fontSize: 14,
@@ -186,7 +200,8 @@ function _getOrCreateCursor(userId) {
     text.anchor.set(0.5, 0);
     text.position.set(0, s * 1.2);
 
-    // Idle identity elements — shown when cursor fades out and setting is enabled
+    // Only show idle identity when fade-out is on and the viewer normally hides
+    // Foundry's dot or name.
     const idleDot = new PIXI.Graphics();
     idleDot.beginFill(color, 1);
     idleDot.drawCircle(0, 0, 6);
@@ -240,7 +255,7 @@ function _getOrCreateCursor(userId) {
     _cursors.set(userId, entry);
     debugLog("sharing", `Created cursor for ${user.name}`);
 
-    // Apply pending custom image if one was received before cursor creation
+    // Apply any custom image that arrived before this PIXI entry existed.
     const pending = _pendingImages.get(userId);
     if (pending) {
         _setCursorLabel(entry, pending.playerName);
@@ -269,11 +284,11 @@ function _applyCursorImage(entry, imageDataUrl, hotspotX, hotspotY) {
     entry.hotspotX = hotspotX;
     entry.hotspotY = hotspotY;
 
-    // Remove old sprite and its texture to prevent PIXI texture cache leaks
+    // Destroy the old sprite and texture before replacing it; PIXI otherwise keeps the texture around.
     _destroyCursorSprite(entry);
 
     if (!imageDataUrl) {
-        // Revert to arrow
+        // Revert to the fallback arrow when the peer clears their custom image.
         entry.arrow.visible = true;
         entry.baseSize = CURSOR_POINTER_SIZE;
         entry.imageWidth = 0;
@@ -290,7 +305,8 @@ function _applyCursorImage(entry, imageDataUrl, hotspotX, hotspotY) {
         const texture = PIXI.Texture.from(img);
         const sprite = new PIXI.Sprite(texture);
 
-        // Position sprite so the hotspot aligns with (0,0) of the container
+        // Align the sprite hotspot with the container origin; movement updates
+        // project that origin onto the canvas cursor position.
         sprite.anchor.set(
             hotspotX / img.width,
             hotspotY / img.height
@@ -319,7 +335,8 @@ function _applyCursorImage(entry, imageDataUrl, hotspotX, hotspotY) {
     img.src = imageDataUrl;
 }
 
-// Cached values to avoid redundant per-frame work
+// Cache native Foundry cursor visibility so the ticker does not scan or mutate
+// those children every frame.
 let _lastFoundryNames = null;
 let _lastFoundryDots = null;
 let _lastFoundryChildrenLength = -1;
@@ -470,7 +487,8 @@ function _tick() {
     const { cursorSize, cursorOpacity, showNames, foundryCursorDisplay, namePosition, nameOffset } = _settings;
     const effectiveFoundryCursorDisplay = _getEffectiveFoundryCursorDisplay(foundryCursorDisplay, showNames);
 
-    // Only update Foundry's native cursor elements when the setting actually changes
+    // Touch Foundry's native cursor elements only when settings or children
+    // changed.
     const showFoundryNames = effectiveFoundryCursorDisplay === "both" || effectiveFoundryCursorDisplay === "names-only";
     const showFoundryDots = effectiveFoundryCursorDisplay === "both" || effectiveFoundryCursorDisplay === "dots-only";
     const foundryChildrenLength = canvas.controls?.cursors?.children?.length ?? 0;
@@ -492,8 +510,8 @@ function _tick() {
     for (const [, entry] of _cursors) {
         if (!entry.container || entry.container.destroyed) continue;
 
-        // Toggle module overlay name label visibility and position
-        // Only recalculate positioning when something changed (nameDirty flag)
+        // Recompute the module label only after image/settings changes;
+        // visibility still updates every frame.
         if (showNames) {
             if (entry.nameDirty) {
                 const hasSprite = !!entry.sprite;
@@ -517,7 +535,8 @@ function _tick() {
         } else {
             entry.text.visible = false;
         }
-        // Smooth interpolation toward target position (matches Foundry's native dx/10 approach)
+        // Smooth interpolation toward target position, matching Foundry's native
+        // cursor easing closely enough to keep both dots visually aligned.
         if (entry.initialized) {
             // Snap threshold matches Foundry's native snap behavior at the current max zoom.
             const snapThreshold = 0.5 / (CONFIG.Canvas.maxZoom || 3);
@@ -532,13 +551,11 @@ function _tick() {
         const baseSize = entry.baseSize || CURSOR_POINTER_SIZE;
         entry.container.scale.set(cursorSize / baseSize);
 
-        // Apply base opacity, with fade-out after timeout
-        // When idle identity fade is enabled, use per-element alpha so hidden
-        // Foundry elements (dot/name) can fade IN while the cursor fades OUT.
+        // Fade custom cursor art and optional idle identity separately.
         const elapsed = now - entry.lastUpdate;
         const { disableCursorFade, idleIdentityFade } = _settings;
         const isFading = !disableCursorFade && elapsed > CURSOR_FADE_TIMEOUT_MS;
-        // Determine which idle elements should appear (only the ones normally hidden)
+        // Only show idle identity elements that the viewer normally hides.
         const shouldIdleDot = idleIdentityFade && (effectiveFoundryCursorDisplay === "none" || effectiveFoundryCursorDisplay === "names-only");
         const shouldIdleName = idleIdentityFade && (effectiveFoundryCursorDisplay === "none" || effectiveFoundryCursorDisplay === "dots-only");
         const hasIdleElements = shouldIdleDot || shouldIdleName;
@@ -548,25 +565,25 @@ function _tick() {
             const fadeOutAlpha = Math.max(0, cursorOpacity * (1 - fadeElapsed / 1000));
 
             if (hasIdleElements) {
-                // Per-element alpha: cursor fades out, idle identity fades in
+                // Cursor art fades out while idle identity fades in.
                 const fadeInAlpha = Math.min(cursorOpacity, fadeElapsed / 1000);
                 entry.container.alpha = 1;
 
-                // Fade out cursor visuals
+                // Fade out cursor visuals.
                 if (entry.sprite) entry.sprite.alpha = fadeOutAlpha;
                 entry.arrow.alpha = fadeOutAlpha;
                 if (showNames) entry.text.alpha = fadeOutAlpha;
 
-                // Fade in idle identity elements
+                // Fade in idle identity elements.
                 entry.idleDot.visible = shouldIdleDot;
                 entry.idleDot.alpha = shouldIdleDot ? fadeInAlpha : 0;
                 entry.idleText.visible = shouldIdleName;
                 entry.idleText.alpha = shouldIdleName ? fadeInAlpha : 0;
 
-                // Keep container visible as long as idle elements are showing
+                // Keep the container visible as long as idle elements are showing.
                 entry.container.visible = true;
             } else {
-                // Original behavior — container-level fade
+                // Plain cursor fade when no idle identity elements are needed.
                 entry.container.alpha = fadeOutAlpha;
                 entry.idleDot.visible = false;
                 entry.idleText.visible = false;
@@ -575,7 +592,7 @@ function _tick() {
                 }
             }
         } else {
-            // Active cursor — full opacity, hide idle elements, reset per-element alphas
+            // Active cursor: full opacity, no idle identity, reset per-element alpha.
             entry.container.alpha = cursorOpacity;
             if (entry.sprite) entry.sprite.alpha = 1;
             entry.arrow.alpha = 1;

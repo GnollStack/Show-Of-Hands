@@ -1,18 +1,16 @@
 /**
  * Pure cursor geometry helpers.
  *
- * The math behind cursor image resize/rotation (consumed by `cursor-styles.js`)
- * and shared-overlay name placement / movement interpolation (consumed by
- * `cursor-overlay.js`), kept free of canvas/PIXI globals so it can be unit
- * tested in Node (mirroring the `diagnostics-core.js` pattern). Numeric output
- * must stay identical to the previous inline implementations.
+ * Cursor resize, rotation, overlay-label placement, and movement easing live
+ * here so they can be tested without Foundry or PIXI. Keep the output stable;
+ * both the tests and the live cursor rendering rely on these numbers.
  */
 
 import { CURSOR_SIZE_MAX, NAME_POSITION_PRESETS } from './constants.js';
 
 /**
- * Resolve the on-screen display size after an optional resize. When only one of
- * width/height is given, the other is derived to preserve aspect ratio.
+ * Work out the display size after an optional resize. If only width or height
+ * is set, preserve the original aspect ratio.
  * @returns {{width:number, height:number}}
  */
 export function computeCursorDisplaySize(naturalW, naturalH, targetW = 0, targetH = 0) {
@@ -23,8 +21,8 @@ export function computeCursorDisplaySize(naturalW, naturalH, targetW = 0, target
 }
 
 /**
- * Resize-only output: scale down to the browser-safe max dimension and scale the
- * hotspot to match.
+ * Resize pass: stay under the browser cursor size limit and move the hotspot
+ * with the image.
  * @returns {{width:number, height:number, hotspotX:number, hotspotY:number, scale:number}}
  */
 export function computeResizeOutput(displayW, displayH, hotspotX, hotspotY, max = CURSOR_SIZE_MAX) {
@@ -40,9 +38,8 @@ export function computeResizeOutput(displayW, displayH, hotspotX, hotspotY, max 
 }
 
 /**
- * Rotation output: the rotated bounding-box size, the rotated hotspot, and the
- * scale/radians the caller needs to rasterize. Hotspot is computed against the
- * pre-scale box, then scaled down with everything else if the box exceeds `max`.
+ * Rotation pass: return the new box, hotspot, scale, and radians needed for
+ * rasterizing. The hotspot is rotated before any size-limit scaling.
  * @returns {{width:number, height:number, hotspotX:number, hotspotY:number, scale:number, rad:number}}
  */
 export function computeRotationOutput(displayW, displayH, hotspotX, hotspotY, degrees, max = CURSOR_SIZE_MAX) {
@@ -81,13 +78,12 @@ export function computeRotationOutput(displayW, displayH, hotspotX, hotspotY, de
 }
 
 /**
- * Compute the overlay name label's anchor and position relative to the cursor
- * container origin (the hotspot). Positions are derived from the image center so
- * they match the config preview; for presets the label is pushed clear of the
- * image edges so it never overlaps the cursor sprite.
+ * Place the overlay name relative to the cursor hotspot. Positions come from
+ * the image center, matching the config preview; presets are nudged outside the
+ * sprite edges when custom art is present.
  *
  * @returns {{anchorX:number, anchorY:number, posX:number, posY:number}|null}
- *          null when `namePosition` is an unknown preset (caller leaves the label as-is).
+ *          null means the caller should leave the current label placement alone.
  */
 export function computeOverlayNamePlacement({
     namePosition,
@@ -102,8 +98,8 @@ export function computeOverlayNamePlacement({
 } = {}) {
     const s = scale;
 
-    // The container origin (0,0) is the hotspot; offset to the image center so
-    // positions match the config preview (which is image-center relative).
+    // The overlay container is anchored at the hotspot; shift to image center
+    // to match the config preview.
     let centerOffX = 0, centerOffY = 0;
     if (hasSprite) {
         centerOffX = spriteWidth * (0.5 - spriteAnchorX);
@@ -127,11 +123,9 @@ export function computeOverlayNamePlacement({
 
     if (hasSprite) {
         const gap = s * 0.2;
-        // Push past bottom edge for bottom-anchored labels (anchorY 0 = text top at pos)
+        // Keep preset labels just outside the sprite when custom art is present.
         if (preset.anchorY === 0) posY = Math.max(posY, spriteHeight * (1 - spriteAnchorY) + gap);
-        // Push above top edge for top-anchored labels (anchorY 1 = text bottom at pos)
         if (preset.anchorY === 1) posY = Math.min(posY, -spriteHeight * spriteAnchorY - gap);
-        // Push past right edge for left-anchored labels (anchorX 0 = text left at pos)
         if (preset.anchorX === 0) posX = Math.max(posX, spriteWidth * (1 - spriteAnchorX) + gap);
     }
 
@@ -139,9 +133,8 @@ export function computeOverlayNamePlacement({
 }
 
 /**
- * One interpolation step toward a target position. Snaps to the target when the
- * remaining Manhattan distance is below `snapThreshold`, otherwise moves a
- * `speed` fraction of the way (matching Foundry's native dx/10 approach).
+ * Move one step toward a target. Snap when close enough; otherwise use the same
+ * gentle dx/10 style easing Foundry uses.
  * @returns {{x:number, y:number}}
  */
 export function stepCursorLerp(currentX, currentY, targetX, targetY, snapThreshold, speed) {

@@ -1,3 +1,9 @@
+/**
+ * @file privacy-broadcast.js
+ * @description Filters the local user's native Foundry cursor activity while
+ * Show of Hands private cursor mode is active.
+ */
+
 import { MODULE_ID } from './constants.js';
 
 export const PRIVATE_BROADCAST_WRAPPER_TARGET = "foundry.documents.User.prototype.broadcastActivity";
@@ -35,6 +41,8 @@ function callOriginal(original, user, activityData, options) {
 }
 
 export function filterPrivateBroadcastActivity(activityData = {}, { privateMode = false } = {}) {
+    // Only native activity that includes cursor coordinates can reveal private
+    // mode position. Other activity is forwarded untouched.
     if (!privateMode || !activityData || typeof activityData !== "object") {
         return {
             action: "forward",
@@ -62,6 +70,8 @@ export function filterPrivateBroadcastActivity(activityData = {}, { privateMode 
 
     let hiddenPing = null;
     if (hasPing) {
+        // Preserve Foundry's ping payload, but send it through the module socket
+        // so the cursor coordinate is not broadcast as native user activity.
         hiddenPing = {
             position: activityData.cursor,
             ping: activityData.ping
@@ -79,6 +89,8 @@ export function filterPrivateBroadcastActivity(activityData = {}, { privateMode 
 }
 
 function handleBroadcastActivity(user, original, activityData = {}, options = {}) {
+    // The module sometimes needs to emit non-private native activity itself
+    // (for example, clearing cursor state). The symbol avoids re-filtering that.
     if (options?.[BYPASS_PRIVACY_FILTER]) {
         return callOriginal(original, user, activityData, withoutBypassOption(options));
     }
@@ -93,6 +105,8 @@ function handleBroadcastActivity(user, original, activityData = {}, options = {}
 }
 
 function installDirectPatch(proto, fallbackReason) {
+    // Worlds without libWrapper still need privacy mode, so keep a small direct
+    // patch that preserves the original method and reports the fallback reason.
     proto.broadcastActivity = function(activityData = {}, options = {}) {
         return handleBroadcastActivity(this, _originalBroadcastActivity, activityData, options);
     };

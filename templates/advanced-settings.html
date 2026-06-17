@@ -1,4 +1,5 @@
 <div class="ttb-advanced">
+    {{!-- Shared cursor tuning for this viewer. --}}
     <section class="ttb-advanced-section">
         <h3>Shared Cursor Tuning</h3>
 
@@ -21,6 +22,7 @@
         </label>
     </section>
 
+    {{!-- Local filters for middle-drag marquee targeting. --}}
     <section class="ttb-advanced-section">
         <h3>Marquee Targeting</h3>
         <div class="ttb-form-group">
@@ -42,6 +44,7 @@
         </div>
     </section>
 
+    {{!-- Remote cursor visibility for this viewer. --}}
     <section class="ttb-advanced-section">
         <h3>Shared Cursor Visibility</h3>
         {{#if hasUsers}}
@@ -58,6 +61,7 @@
         {{/if}}
     </section>
 
+    {{!-- Read-only debug snapshot from the module API. --}}
     <section class="ttb-advanced-section">
         <h3 id="ttb-diagnostics-heading">Diagnostics</h3>
         <div class="ttb-diagnostics-actions">

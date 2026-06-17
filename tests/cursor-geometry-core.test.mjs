@@ -113,7 +113,7 @@ test('computeOverlayNamePlacement clamps bottom labels past the sprite edge', ()
         spriteAnchorX: 0.5,
         spriteAnchorY: 0.5
     });
-    // base posY (19.2) is pushed to sh*(1-anchorY)+gap = 32 + 3.2
+    // Clamp check: base posY (19.2) is pushed below the sprite edge (32 + 3.2).
     closeTo(out.posY, 35.2);
     closeTo(out.posX, 0);
 });

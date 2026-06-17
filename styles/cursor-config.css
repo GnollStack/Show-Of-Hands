@@ -1,3 +1,7 @@
+/* ========================================================= */
+/*   Cursor Configuration Sheet                              */
+/* ========================================================= */
+
 .ttb-cursor-config {
     padding: 10px;
     max-height: calc(100vh - 110px);
@@ -27,6 +31,10 @@
     background: #b09b7b;
 }
 
+/* ========================================================= */
+/*   Player Profile Controls                                 */
+/* ========================================================= */
+
 .ttb-cursor-config .ttb-player-config {
     margin-bottom: 14px;
     padding: 10px 12px;
@@ -55,6 +63,10 @@
 .ttb-cursor-config .ttb-profile-actions button {
     flex: 0 0 auto;
 }
+
+/* ========================================================= */
+/*   Cursor State Tabs                                       */
+/* ========================================================= */
 
 .ttb-cursor-config .ttb-tabs {
     display: flex;
@@ -96,6 +108,10 @@
 .ttb-cursor-config .ttb-tab-content.active {
     display: block;
 }
+
+/* ========================================================= */
+/*   State Summary And Native Preview                        */
+/* ========================================================= */
 
 .ttb-cursor-config .ttb-state-summary {
     margin-bottom: 14px;
@@ -168,8 +184,11 @@
     flex: 1;
 }
 
+/* ========================================================= */
+/*   Cursor Image Actions And Preview                        */
+/* ========================================================= */
+
 .ttb-cursor-config .ttb-browse-btn,
-.ttb-cursor-config .ttb-aom-btn,
 .ttb-cursor-config .ttb-clear-btn {
     flex-shrink: 0;
     width: 32px;
@@ -258,6 +277,10 @@
     color: #555 !important;
 }
 
+/* ========================================================= */
+/*   Hotspot, Rotation, And Size Controls                    */
+/* ========================================================= */
+
 .ttb-cursor-config .ttb-state-fields {
     margin-top: 8px;
 }
@@ -294,6 +317,10 @@
     border-color: #4a90d9;
     background: #e8f0fb;
 }
+
+/* ========================================================= */
+/*   Overlay Name Placement                                  */
+/* ========================================================= */
 
 .ttb-cursor-config .ttb-name-preset-row {
     display: flex;
@@ -351,6 +378,10 @@
 .ttb-cursor-config .ttb-sheet-footer {
     margin-top: 12px;
 }
+
+/* ========================================================= */
+/*   Advanced Settings Sheet                                 */
+/* ========================================================= */
 
 .ttb-advanced {
     padding: 10px;

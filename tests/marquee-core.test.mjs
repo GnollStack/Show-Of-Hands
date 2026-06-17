@@ -36,7 +36,7 @@ test('rectIntersectsBounds rejects separated boxes', () => {
 
 test('rectIntersectsBounds treats edge-only contact as no overlap (strict)', () => {
     const rect = normalizeRect(0, 0, 100, 100);
-    // Right edge of rect touches left edge of bounds — strict < means no select
+    // Right edge of rect touches left edge of bounds; strict < means no select.
     assert.equal(rectIntersectsBounds(rect, boundsOf(100, 0, 200, 100)), false);
     // Bottom edge touches top edge
     assert.equal(rectIntersectsBounds(rect, boundsOf(0, 100, 100, 200)), false);

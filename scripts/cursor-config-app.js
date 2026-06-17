@@ -1,11 +1,17 @@
-import { MODULE_ID, CURSOR_SIZE_MAX, DEFAULT_CURSOR_PATH, DEFAULT_HOTSPOT, CURSOR_STATE_KEYS, CURSOR_STATE_DETAILS, NAME_POSITION_PRESETS, NAME_LABEL_PREVIEW_SCALE, debugLog } from './constants.js';
+/**
+ * @file cursor-config-app.js
+ * @description ApplicationV2 sheet for editing Show of Hands per-user cursor
+ * images, hotspots, size, rotation, and overlay name placement.
+ */
+
+import { MODULE_ID, CURSOR_SIZE_MAX, CURSOR_STATE_KEYS, CURSOR_STATE_DETAILS, NAME_POSITION_PRESETS, NAME_LABEL_PREVIEW_SCALE, debugLog } from './constants.js';
 import { getDefaultCursorStates, getDefaultUserCursorConfig, getUserCursorConfig, setUserCursorConfig, summarizeCursorConfigForLog } from './settings.js';
 import { applyCursorStyles } from './cursor-styles.js';
 import { refreshSharedCursorImage } from './cursor-sharing.js';
 
 function escapeHtml(value) {
-    // Prefer Foundry's helper (escapes the same set: & < > " '); fall back to a
-    // local implementation if the API is ever unavailable.
+    // Use Foundry's escaper when it exists; keep a tiny fallback for tests and
+    // early-load paths.
     const foundryEscape = foundry.utils?.escapeHTML;
     if (typeof foundryEscape === "function") return foundryEscape(value ?? "");
     return String(value ?? "").replace(/[&<>"']/g, match => ({
@@ -54,8 +60,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
             resetAll: CursorConfigApp.#onResetAll,
             resetProfile: CursorConfigApp.#onResetProfile,
             selectCursorTab: CursorConfigApp.#onSelectCursorTab,
-            setNamePreset: CursorConfigApp.#onSetNamePreset,
-            useAomDefault: CursorConfigApp.#onUseAomDefault
+            setNamePreset: CursorConfigApp.#onSetNamePreset
         },
         window: {
             title: "Cursor Configuration",
@@ -98,8 +103,6 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
         const nameOffset = config.nameOffset;
         return {
             states: statesArray,
-            defaultCursorPath: DEFAULT_CURSOR_PATH,
-            cursorImage: states.default?.image || DEFAULT_CURSOR_PATH,
             canConfigureUsers: game.user.isGM,
             users: game.users.map(user => ({
                 id: user.id,
@@ -123,9 +126,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
         return target?.closest?.('.ttb-tab-content') ?? null;
     }
 
-    // Resolve the per-state form inputs and preview elements for a tab section.
-    // Centralizes the repeated `input[name="states.<key>.<field>"]` lookups so
-    // the various handlers below share one query path.
+    // Keep the noisy per-state selectors in one place.
     static #getStateInputs(section) {
         if (!section) return null;
         const key = section.dataset.tab;
@@ -371,8 +372,8 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
         fp.browse();
     }
 
-    // Shared by "Use AoM default" and "Clear image": set the image path and
-    // hotspot, then reset rotation/size and refresh the preview.
+    // An empty image path means native Foundry cursor. Reset image-only controls
+    // so old size/rotation values do not hang around.
     static #applyStateImageReset(section, { image, hotspotX, hotspotY }) {
         const inputs = CursorConfigApp.#getStateInputs(section);
         if (!inputs) return;
@@ -384,16 +385,6 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
         if (wInput) wInput.value = '';
         if (hInput) hInput.value = '';
         CursorConfigApp.#updateStatePreview(section);
-    }
-
-    static #onUseAomDefault(event, target) {
-        event.preventDefault();
-        const section = CursorConfigApp.#getStateSection(target);
-        CursorConfigApp.#applyStateImageReset(section, {
-            image: DEFAULT_CURSOR_PATH,
-            hotspotX: DEFAULT_HOTSPOT.x,
-            hotspotY: DEFAULT_HOTSPOT.y
-        });
     }
 
     static #onClearCursorImage(event, target) {
@@ -435,8 +426,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
         this.#setupNameLabelDrag(html);
     }
 
-    // Wire up per-state image/hotspot/rotation/size controls and the ratio lock
-    // for every cursor-state tab.
+    // Attach the controls for each cursor-state tab.
     #setupStateControls(html) {
         CURSOR_STATE_KEYS.forEach(stateKey => {
             const section = html.querySelector(`.ttb-tab-content[data-tab="${stateKey}"]`);
@@ -445,13 +435,13 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
 
             const { image: imageInput, previewImg, hotspotX: xSlider, hotspotY: ySlider, rotation: rotSlider, enabled: enableCheckbox, width: wInput, height: hInput, ratioBtn } = inputs;
 
-            // Ratio lock state (per-tab, not persisted)
+            // Per-tab only; saved profiles store the resulting width/height.
             let ratioLocked = false;
             let lockedRatio = 1; // width / height
 
             const updatePreview = () => CursorConfigApp.#updateStatePreview(section);
 
-            // Ratio lock button
+            // Toggle aspect-ratio locking for this tab.
             if (ratioBtn) {
                 ratioBtn.setAttribute('aria-pressed', 'false');
                 ratioBtn.addEventListener('click', (e) => {
@@ -460,7 +450,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
                     ratioBtn.classList.toggle('locked', ratioLocked);
                     ratioBtn.setAttribute('aria-pressed', ratioLocked ? 'true' : 'false');
                     if (ratioLocked) {
-                        // Capture ratio from current inputs, fall back to natural image size
+                        // If fields are blank, use the image's natural ratio.
                         const w = parseInt(wInput?.value) || previewImg?.naturalWidth || 1;
                         const h = parseInt(hInput?.value) || previewImg?.naturalHeight || 1;
                         lockedRatio = w / h;
@@ -468,7 +458,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
                 });
             }
 
-            // Width input — update height when ratio locked
+            // Width drives height while the ratio is locked.
             if (wInput) {
                 wInput.addEventListener('input', () => {
                     if (ratioLocked && hInput) {
@@ -479,7 +469,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
                 });
             }
 
-            // Height input — update width when ratio locked
+            // Height drives width while the ratio is locked.
             if (hInput) {
                 hInput.addEventListener('input', () => {
                     if (ratioLocked && wInput) {
@@ -497,7 +487,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
             if (ySlider) ySlider.addEventListener('input', updatePreview);
             if (rotSlider) rotSlider.addEventListener('input', updatePreview);
 
-            // Enable/disable toggle - show/hide fields
+            // Disabled states keep their saved values but hide the edit fields.
             if (enableCheckbox) {
                 const fields = section.querySelector('.ttb-state-fields');
                 const toggle = () => {
@@ -511,8 +501,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
         });
     }
 
-    // Wire up the draggable/keyboard-nudgeable overlay-name label inside the
-    // Default tab's preview.
+    // Hook up the draggable label in the Default tab preview.
     #setupNameLabelDrag(html) {
         const defaultSection = html.querySelector('.ttb-tab-content[data-tab="default"]');
         const dragLabel = defaultSection?.querySelector('.ttb-name-drag-label');
@@ -524,15 +513,14 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
         const hiddenPos = previewContainer.querySelector('input[name="namePosition"]');
         const previewImg = defaultSection.querySelector('.ttb-preview-img');
 
-        // Init from current values
+        // Start from the saved preset/offset.
         CursorConfigApp.#setActiveNamePreset(previewContainer, hiddenPos.value);
         requestAnimationFrame(() => {
             CursorConfigApp.#positionNameLabel(defaultSection, hiddenPos.value, parseFloat(hiddenX.value), parseFloat(hiddenY.value));
         });
 
-        // Convert the label's pixel position back to image-center-relative offset
-        // multipliers and persist them to the hidden inputs. Shared by both the
-        // mouse-drag path and the keyboard-nudge path.
+        // Store label movement as image-center offsets, the same space used by
+        // the overlay.
         const commitLabelPosition = (newX, newY) => {
             dragLabel.style.left = `${newX}px`;
             dragLabel.style.top = `${newY}px`;
@@ -546,7 +534,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
             CursorConfigApp.#setActiveNamePreset(previewContainer, "custom");
         };
 
-        // Drag logic
+        // Mouse drag path.
         let dragging = false;
         let dragStartX = 0, dragStartY = 0, labelStartX = 0, labelStartY = 0;
 
@@ -576,8 +564,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
             listenerDocument.addEventListener('mouseup', this._boundDocMouseUp, { once: true });
         });
 
-        // Keyboard nudging for accessibility: arrow keys move the label 1px,
-        // Shift+arrow moves 10px, mirroring the drag offset math.
+        // Arrow keys nudge by 1px; Shift bumps that to 10px.
         dragLabel.addEventListener('keydown', (e) => {
             const step = e.shiftKey ? 10 : 1;
             let dx = 0, dy = 0;
@@ -592,7 +579,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
             commitLabelPosition(dragLabel.offsetLeft + dx, dragLabel.offsetTop + dy);
         });
 
-        // Re-position label when image size/rotation changes
+        // Image size changes move the coordinate space; re-place the label next frame.
         const reposOnChange = () => {
             requestAnimationFrame(() => {
                 CursorConfigApp.#positionNameLabel(defaultSection, hiddenPos.value, parseFloat(hiddenX.value), parseFloat(hiddenY.value));
@@ -660,7 +647,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
             };
         });
 
-        // Save name label position
+        // Save name label placement with the cursor profile.
         const namePos = data.namePosition || "bottom-center";
         const nameOffsetX = parseNumber(data.nameOffsetX, 0);
         const nameOffsetY = parseNumber(data.nameOffsetY, 1.2);

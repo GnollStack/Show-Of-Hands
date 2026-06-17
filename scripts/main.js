@@ -1,12 +1,11 @@
 /**
- * Show of Hands Module
+ * @file main.js
+ * @description Runtime entrypoint for Show of Hands targeting, cursor styling,
+ * cursor sharing, and diagnostics wiring.
  *
- * This module enables targeting using the middle mouse button (mousewheel),
- * replicating the functionality of the 'T' key for targeting in Foundry VTT.
- * Features custom cursor support with per-state configuration and user uploads.
- *
- * @module show-of-hands
- * @author GnollStack
+ * Keep this file focused on lifecycle registration and public API assembly.
+ * Feature-specific behavior belongs in the imported modules so startup order
+ * remains easy to audit.
  */
 
 import { MODULE_ID, debugLog } from './constants.js';
@@ -67,8 +66,8 @@ function syncCursorPrivacy() {
     }
 }
 
-// Maps client setting keys to the overlay setting names they drive. Used to
-// push current values into the overlay cache on canvasReady.
+// Maps Foundry setting keys to the overlay cache keys they drive. The overlay
+// ticker reads from this cache instead of calling game.settings every frame.
 const OVERLAY_SETTING_KEYS = Object.freeze({
     "shared-cursor-size": "cursorSize",
     "shared-cursor-opacity": "cursorOpacity",
@@ -157,7 +156,7 @@ function getSettingOnChangeHandlers() {
 
 function registerRuntimeSettings() {
     const onChangeHandlers = getSettingOnChangeHandlers();
-    // Maintenance scanner anchors for metadata-registered MCP gates:
+    // Maintenance scanner anchors for settings registered from metadata:
     // game.settings.register(MODULE_ID, "debug-mode")
     // game.settings.register(MODULE_ID, "enableMcpDiagnostics")
     for (const definition of SETTING_DEFINITIONS) {

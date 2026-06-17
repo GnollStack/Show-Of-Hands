@@ -1,9 +1,17 @@
+/**
+ * @file constants.js
+ * @description Shared Show of Hands identifiers, cursor defaults, socket
+ * message names, and small runtime constants.
+ */
+
+// "show-of-hands" is the current module identity. "target-the-beastie" remains
+// only as a legacy namespace for migration from older installs.
 export const MODULE_ID = "show-of-hands";
 export const LEGACY_MODULE_ID = "target-the-beastie";
 export const MODULE_TITLE = "Show of Hands";
 export const STYLE_ID = `${MODULE_ID}-cursor-style`;
-export const DEFAULT_CURSOR_PATH = `modules/${MODULE_ID}/assets/AOM_cursor_pointer.png`;
-export const DEFAULT_HOTSPOT = { x: 4, y: 4 };
+export const DEFAULT_CURSOR_PATH = "";
+export const DEFAULT_HOTSPOT = { x: 0, y: 0 };
 export const SOCKET_EVENT = `module.${MODULE_ID}`;
 export const CURSOR_SHARE_THROTTLE_MS = 33;
 export const CURSOR_FADE_TIMEOUT_MS = 5000;
@@ -147,9 +155,8 @@ export const CURSOR_STATE_DETAILS = Object.freeze(
     Object.fromEntries(CURSOR_STATE_DEFINITIONS.map(state => [state.key, state]))
 );
 
-// Pixels-per-offset-unit used when projecting the overlay name label onto the
-// config preview image (cursor-config-app.js). Offsets are stored as multiples
-// of the image half-size, so the preview multiplies them by this factor.
+// Pixels per stored offset unit when projecting the overlay name label onto the
+// config preview image. Offsets are persisted as image half-size multipliers.
 export const NAME_LABEL_PREVIEW_SCALE = 16;
 
 export const NAME_POSITION_PRESETS = {
@@ -159,7 +166,7 @@ export const NAME_POSITION_PRESETS = {
     "right":         { anchorX: 0, anchorY: 0.5, offsetX: 1.0, offsetY: 0.3 }
 };
 
-// Marquee box select constants
+// Marquee box select visuals and drag threshold.
 export const MARQUEE_DRAG_THRESHOLD = 10;
 export const MARQUEE_FILL_COLOR = 0x4488FF;
 export const MARQUEE_FILL_ALPHA = 0.15;
@@ -185,6 +192,6 @@ export function debugLog(category, ...args) {
             console.log(`${MODULE_ID} | [DEBUG:${category}]`, ...args);
         }
     } catch {
-        // Settings not ready yet
+        // Settings are not registered during early module import.
     }
 }

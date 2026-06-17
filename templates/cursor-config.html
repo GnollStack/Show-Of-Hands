@@ -1,5 +1,6 @@
 <div class="ttb-cursor-config">
 
+    {{!-- Player picker plus profile copy/reset controls. --}}
     <div class="ttb-player-config">
         {{#if canConfigureUsers}}
         <div class="ttb-form-group">
@@ -37,6 +38,7 @@
         </div>
     </div>
 
+    {{!-- Cursor state tabs from constants.js. --}}
     <nav class="ttb-tabs">
         {{#each states}}
         <button type="button" class="ttb-tab-btn {{#if @first}}active{{/if}}" data-action="selectCursorTab" data-tab="{{key}}">
@@ -48,6 +50,7 @@
     {{#each states}}
     <div class="ttb-tab-content {{#if @first}}active{{/if}}" data-tab="{{key}}">
 
+        {{!-- State summary and native cursor preview. --}}
         <div class="ttb-state-summary">
             <div class="ttb-state-heading">
                 <h3>{{label}}</h3>
@@ -64,7 +67,7 @@
             </div>
             <p class="ttb-notes">
                 {{#if isDefault}}
-                This is the baseline cursor used when no more specific state overrides it.
+                When the image is empty, Foundry's native {{nativeDefault}} cursor is used as the baseline.
                 {{else}}
                 When this state is enabled but the image is empty, Foundry's native {{nativeDefault}} cursor is used.
                 {{/if}}
@@ -81,6 +84,7 @@
         </div>
         {{/unless}}
 
+        {{!-- Cursor image controls and default-state overlay-name placement. --}}
         <div class="ttb-state-fields">
             <div class="ttb-form-group">
                 <label>Cursor Image</label>
@@ -89,14 +93,9 @@
                     <button type="button" class="ttb-browse-btn" data-action="browseCursorImage" title="Browse for image" aria-label="Browse for image">
                         <i class="fas fa-file-import"></i>
                     </button>
-                    <button type="button" class="ttb-aom-btn" data-action="useAomDefault" title="Use AoM default cursor" aria-label="Use AoM default cursor">
-                        <i class="fas fa-undo"></i>
-                    </button>
-                    {{#unless isDefault}}
                     <button type="button" class="ttb-clear-btn" data-action="clearCursorImage" title="Use Foundry native cursor for this state" aria-label="Use Foundry native cursor for this state">
                         <i class="fas fa-xmark"></i>
                     </button>
-                    {{/unless}}
                 </div>
             </div>
 

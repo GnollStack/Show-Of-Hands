@@ -127,7 +127,7 @@ test('fresh install without stored legacy keys does not write migration settings
     });
 });
 
-test('legacy v1 settings migrate through the full v4 chain', async () => {
+test('legacy v1 settings migrate through the full v5 chain', async () => {
     await withEnvironment({
         'use-aom-cursor': false,
         'cursor-hotspot-x': 7,
@@ -139,10 +139,10 @@ test('legacy v1 settings migrate through the full v4 chain', async () => {
     }, async (env) => {
         await migrateSettings();
 
-        assert.equal(env.get('settings-version'), 4);
+        assert.equal(env.get('settings-version'), 5);
         assert.equal(env.get('use-custom-cursor'), false);
-        assert.equal(env.get('cursor-states').default.hotspotX, 7);
-        assert.equal(env.get('cursor-states').default.hotspotY, 8);
+        assert.equal(env.get('cursor-states').default.hotspotX, DEFAULT_HOTSPOT.x);
+        assert.equal(env.get('cursor-states').default.hotspotY, DEFAULT_HOTSPOT.y);
         assert.equal(env.get('middle-mouse-actions'), 'target');
         assert.equal(env.get('cursor-sharing-mode'), 'private');
     });
@@ -152,10 +152,13 @@ test('legacy module namespace settings are copied before version migration', asy
     await withEnvironment({}, async (env) => {
         await migrateSettings();
 
-        assert.equal(env.get('settings-version'), 4);
+        assert.equal(env.get('settings-version'), 5);
         assert.equal(env.get('middle-mouse-actions'), 'marquee');
         assert.equal(env.get('cursor-sharing-mode'), 'receive');
-        assert.equal(env.get('cursor-states').default.image, 'modules/show-of-hands/assets/AOM_cursor_pointer.png');
+        assert.equal(env.get('cursor-states').default.image, '');
+        assert.equal(env.get('cursor-states').default.hotspotX, DEFAULT_HOTSPOT.x);
+        assert.equal(env.get('cursor-states').default.hotspotY, DEFAULT_HOTSPOT.y);
+        assert.equal(env.get('cursor-states').hover.image, 'modules/show-of-hands/custom/cursor.png');
         assert.equal(env.getLegacy('settings-version'), 4);
     }, {
         legacySettings: {
@@ -171,9 +174,52 @@ test('legacy module namespace settings are copied before version migration', asy
                     width: 0,
                     height: 0,
                     enabled: true
+                },
+                hover: {
+                    image: 'modules/target-the-beastie/custom/cursor.png',
+                    hotspotX: 9,
+                    hotspotY: 10,
+                    rotation: 0,
+                    width: 0,
+                    height: 0,
+                    enabled: true
                 }
             }
         }
+    });
+});
+
+test('v5 migration scrubs removed bundled cursor paths from current cursor states', async () => {
+    await withEnvironment({
+        'settings-version': 4,
+        'cursor-states': {
+            default: {
+                image: 'modules/show-of-hands/assets/AOM_cursor_pointer.png',
+                hotspotX: 4,
+                hotspotY: 4,
+                rotation: 0,
+                width: 0,
+                height: 0,
+                enabled: true
+            },
+            hover: {
+                image: 'modules/target-the-beastie/custom/hover.png',
+                hotspotX: 9,
+                hotspotY: 10,
+                rotation: 0,
+                width: 0,
+                height: 0,
+                enabled: true
+            }
+        }
+    }, async (env) => {
+        await migrateSettings();
+
+        assert.equal(env.get('settings-version'), 5);
+        assert.equal(env.get('cursor-states').default.image, '');
+        assert.equal(env.get('cursor-states').default.hotspotX, DEFAULT_HOTSPOT.x);
+        assert.equal(env.get('cursor-states').default.hotspotY, DEFAULT_HOTSPOT.y);
+        assert.equal(env.get('cursor-states').hover.image, 'modules/show-of-hands/custom/hover.png');
     });
 });
 
@@ -191,7 +237,7 @@ test('mid-chain migration failure persists completed earlier version and stops',
 
         assert.equal(env.get('settings-version'), 2);
         assert.equal(env.get('use-custom-cursor'), false);
-        assert.equal(env.get('cursor-states').default.hotspotX, 5);
+        assert.equal(env.get('cursor-states').default.hotspotX, DEFAULT_HOTSPOT.x);
         assert.equal(env.has('middle-mouse-actions'), false);
         assert.equal(env.has('cursor-sharing-mode'), false);
     }, { mergeThrows: true });
@@ -216,7 +262,7 @@ test('stored cursor-states without version is treated as v2 even when legacy key
     }, async (env) => {
         await migrateSettings();
 
-        assert.equal(env.get('settings-version'), 4);
+        assert.equal(env.get('settings-version'), 5);
         assert.equal(env.has('use-custom-cursor'), false);
         assert.equal(env.get('cursor-states').default.image, 'custom.png');
         assert.equal(env.get('cursor-states').default.hotspotX, 11);
@@ -230,9 +276,9 @@ test('legacy migration falls back to defaults for missing legacy keys', async ()
     }, async (env) => {
         await migrateSettings();
 
-        assert.equal(env.get('settings-version'), 4);
+        assert.equal(env.get('settings-version'), 5);
         assert.equal(env.get('use-custom-cursor'), true);
-        assert.equal(env.get('cursor-states').default.hotspotX, 9);
+        assert.equal(env.get('cursor-states').default.hotspotX, DEFAULT_HOTSPOT.x);
         assert.equal(env.get('cursor-states').default.hotspotY, DEFAULT_HOTSPOT.y);
         assert.equal(env.get('middle-mouse-actions'), 'both');
         assert.equal(env.get('cursor-sharing-mode'), 'share');

@@ -112,7 +112,7 @@
 | Targeting | Targeting tool is active. |
 | Panning | Right-click dragging to pan. |
 
-Per-state customization includes image upload, click hotspot position, rotation from `0-359` degrees, width and height controls, aspect-ratio locking, state enablement, live preview, native fallback previews, and the built-in Age of Myth default cursor.
+Per-state customization includes FilePicker-backed image paths, click hotspot position, rotation from `0-359` degrees, width and height controls, aspect-ratio locking, state enablement, live preview, native fallback previews, and profile copy/reset controls. Show of Hands ships without cursor artwork; leave an image path empty to use Foundry's native cursor for that state.
 
 [IMAGE: Cursor Settings tabs showing Default, Hover, Target, and Panning states]
 
@@ -123,18 +123,18 @@ Click **Cursor Settings** in module settings to open the configuration UI. GMs c
 
 For each cursor state you can:
 
-1. Set an image by typing a path or using the Browse button.
-2. Restore the built-in AoM default cursor.
+1. Set an image by typing a path or using the Browse button to choose a file available to Foundry.
+2. Clear the image path to use Foundry's native cursor for that state.
 3. Adjust the hotspot with X and Y sliders.
 4. Rotate the cursor from `0-359` degrees.
 5. Resize it with width and height controls.
 6. Enable or disable non-default states.
-7. Clear a non-default state's image to use Foundry's native cursor for that state.
+7. Clear any state's image to use Foundry's native cursor for that state.
 8. Preview each state's native fallback cursor directly in the config UI.
 9. In the Default tab, drag the preview label or use preset buttons to position the module's shared overlay name.
 10. Reset a profile to defaults or copy a profile from another player.
 
-The live preview shows the cursor image with a red dot marking the hotspot. The draggable name label controls only the module's shared overlay name; Foundry's built-in cursor name is configured separately through **Built-In Foundry Cursor Elements**.
+The live preview shows the cursor image with a red dot marking the hotspot. The draggable name label controls only the module's shared overlay name; Foundry's built-in cursor name is configured separately through **Built-In Foundry Cursor Elements**. Players can use their own cursor image files anywhere Foundry's FilePicker can read them.
 
 </details>
 
@@ -282,7 +282,7 @@ Earlier versions of the hover system could cause severe FPS drops when sweeping 
 
 - Ensure the image path is valid and the file exists.
 - Keep cursor images at `128x128` or smaller for best browser compatibility.
-- Try the built-in default cursor.
+- Clear the image path to confirm the native cursor fallback, then choose a known-good image file through Browse.
 - If changing cursor code, remember Foundry stores `--cursor-*` values inline on the root element; overriding them only in a stylesheet can leave the native cursor active.
 - Set Debug Mode to **Cursor CSS & Settings** for detailed logging.
 
@@ -393,7 +393,7 @@ https://github.com/GnollStack/Target-The-Beastie/releases/latest/download/module
 
 ## Compatibility
 
-**Module version:** `14.0.1`
+**Module version:** `14.0.2`
 
 **Foundry VTT:** v14+, verified on v14.363.
 
@@ -586,7 +586,7 @@ For licensing inquiries or permission slips:
 
 <div align="center">
 
-**Author:** [GnollStack](https://github.com/GnollStack) - **Compatibility:** Foundry VTT v14+ - **Version:** 14.0.1
+**Author:** [GnollStack](https://github.com/GnollStack) - **Compatibility:** Foundry VTT v14+ - **Version:** 14.0.2
 
 [Back to Top](#show-of-hands)
 

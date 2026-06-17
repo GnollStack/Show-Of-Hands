@@ -2,7 +2,7 @@
   "id": "show-of-hands",
   "title": "Show of Hands: Targeting & Cursors",
   "description": "Target tokens with the mousewheel button. Hold and drag to marquee-select multiple tokens at once. Upload custom cursor images and configure different cursors for each interaction state (default, hover, targeting, panning).",
-  "version": "14.0.2",
+  "version": "14.0.3",
   "compatibility": {
     "minimum": "14",
     "verified": "14.363"
