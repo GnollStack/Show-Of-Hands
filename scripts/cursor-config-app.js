@@ -66,7 +66,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
             width: 760,
             height: 720
         },
-        classes: ["target-the-beastie", "cursor-config"]
+        classes: ["show-of-hands", "cursor-config"]
     };
 
     static PARTS = {

@@ -1,11 +1,11 @@
 /**
- * Target the Beastie Module
+ * Show of Hands Module
  *
  * This module enables targeting using the middle mouse button (mousewheel),
  * replicating the functionality of the 'T' key for targeting in Foundry VTT.
  * Features custom cursor support with per-state configuration and user uploads.
  *
- * @module target-the-beastie
+ * @module show-of-hands
  * @author GnollStack
  */
 
@@ -19,6 +19,7 @@ import {
     getUserCursorConfig,
     isCursorBroadcastEnabled,
     isCursorPrivateMode,
+    migrateLegacyUserCursorConfig,
     migrateSettings,
     summarizeCursorConfigForLog
 } from './settings.js';
@@ -125,6 +126,7 @@ function installApi() {
     };
     const module = game.modules.get(MODULE_ID);
     if (module) module.api = api;
+    globalThis.ShowOfHands = api;
     globalThis.TargetTheBeastie = api;
 }
 
@@ -248,6 +250,12 @@ Hooks.once('ready', async () => {
             await migrateSettings();
         } catch (e) {
             console.error(`${MODULE_ID} | Settings migration failed:`, e);
+        }
+
+        try {
+            await migrateLegacyUserCursorConfig(game.user);
+        } catch (e) {
+            console.warn(`${MODULE_ID} | Legacy cursor profile migration failed:`, e);
         }
 
         try {

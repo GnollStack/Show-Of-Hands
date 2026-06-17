@@ -1,4 +1,4 @@
-import { MODULE_ID, DEBUG_MODES, DEFAULT_CURSOR_PATH, DEFAULT_HOTSPOT, CURSOR_SIZE_MAX, CURSOR_STATE_KEYS, debugLog } from './constants.js';
+import { MODULE_ID, LEGACY_MODULE_ID, DEBUG_MODES, DEFAULT_CURSOR_PATH, DEFAULT_HOTSPOT, CURSOR_SIZE_MAX, CURSOR_STATE_KEYS, debugLog } from './constants.js';
 
 const CURRENT_SETTINGS_VERSION = 4;
 export const USER_CURSOR_CONFIG_FLAG = "cursorConfig";
@@ -37,10 +37,21 @@ export const CURSOR_NAME_POSITION_CHOICES = Object.freeze({
     "custom": "Custom (set in Cursor Settings)"
 });
 
+function getStoredSettingData(scope, moduleId, key) {
+    const storage = game.settings.storage.get(scope);
+    const settingId = `${moduleId}.${key}`;
+    const raw = storage?.getItem?.(settingId);
+    if (raw === undefined || raw === null) return { found: false, value: undefined };
+
+    try {
+        return { found: true, value: JSON.parse(raw) };
+    } catch {
+        return { found: true, value: raw };
+    }
+}
+
 function hasStoredClientSetting(key) {
-    const storage = game.settings.storage.get("client");
-    const settingId = `${MODULE_ID}.${key}`;
-    return storage ? storage.getItem(settingId) !== null : false;
+    return getStoredSettingData("client", MODULE_ID, key).found;
 }
 
 function hasAnyStoredClientSetting(keys) {
@@ -64,6 +75,38 @@ function getStoredSettingsVersion() {
 
     const version = Number(game.settings.get(MODULE_ID, "settings-version"));
     return Number.isFinite(version) ? version : 0;
+}
+
+function migrateLegacyModulePaths(value) {
+    if (typeof value === "string") {
+        return value.replaceAll(`modules/${LEGACY_MODULE_ID}/`, `modules/${MODULE_ID}/`);
+    }
+    if (Array.isArray(value)) return value.map(migrateLegacyModulePaths);
+    if (value && typeof value === "object") {
+        return Object.fromEntries(
+            Object.entries(value).map(([key, child]) => [key, migrateLegacyModulePaths(child)])
+        );
+    }
+    return value;
+}
+
+async function migrateLegacyNamespaceSettings() {
+    if (!game.settings?.storage?.get) return;
+
+    for (const definition of SETTING_DEFINITIONS) {
+        const scope = definition.scope ?? "client";
+        const current = getStoredSettingData(scope, MODULE_ID, definition.key);
+        if (current.found) continue;
+
+        const legacy = getStoredSettingData(scope, LEGACY_MODULE_ID, definition.key);
+        if (!legacy.found) continue;
+
+        try {
+            await game.settings.set(MODULE_ID, definition.key, migrateLegacyModulePaths(legacy.value));
+        } catch (error) {
+            console.warn(`${MODULE_ID} | Could not migrate legacy ${LEGACY_MODULE_ID}.${definition.key}.`, error);
+        }
+    }
 }
 
 function createDefaultState(key) {
@@ -383,6 +426,7 @@ export function normalizeCursorStates(states = {}) {
 }
 
 export function normalizeUserCursorConfig(config = {}) {
+    config = migrateLegacyModulePaths(config ?? {});
     const defaults = getDefaultUserCursorConfig();
     const merged = foundry.utils.mergeObject(defaults, config ?? {}, {
         inplace: false,
@@ -406,7 +450,22 @@ export function normalizeUserCursorConfig(config = {}) {
 
 export function getUserCursorConfig(user = game.user) {
     const stored = user?.getFlag?.(MODULE_ID, USER_CURSOR_CONFIG_FLAG);
-    return normalizeUserCursorConfig(stored ?? {});
+    const legacy = stored === undefined ? user?.getFlag?.(LEGACY_MODULE_ID, USER_CURSOR_CONFIG_FLAG) : undefined;
+    return normalizeUserCursorConfig(stored ?? legacy ?? {});
+}
+
+export async function migrateLegacyUserCursorConfig(user = game.user) {
+    if (!user?.getFlag || !user?.setFlag) return { migrated: false, reason: "user-flags-unavailable" };
+
+    const stored = user.getFlag(MODULE_ID, USER_CURSOR_CONFIG_FLAG);
+    if (stored !== undefined) return { migrated: false, reason: "current-profile-exists" };
+
+    const legacy = user.getFlag(LEGACY_MODULE_ID, USER_CURSOR_CONFIG_FLAG);
+    if (legacy === undefined) return { migrated: false, reason: "legacy-profile-missing" };
+
+    const normalized = normalizeUserCursorConfig(legacy);
+    await user.setFlag(MODULE_ID, USER_CURSOR_CONFIG_FLAG, normalized);
+    return { migrated: true, profile: normalized };
 }
 
 export async function setUserCursorConfig(user, config) {
@@ -509,6 +568,8 @@ export function isSharedCursorUserVisible(userId) {
 }
 
 export async function migrateSettings() {
+    await migrateLegacyNamespaceSettings();
+
     let version = getStoredSettingsVersion();
 
     if (version >= CURRENT_SETTINGS_VERSION) return;

@@ -1,4 +1,6 @@
-export const MODULE_ID = "target-the-beastie";
+export const MODULE_ID = "show-of-hands";
+export const LEGACY_MODULE_ID = "target-the-beastie";
+export const MODULE_TITLE = "Show of Hands";
 export const STYLE_ID = `${MODULE_ID}-cursor-style`;
 export const DEFAULT_CURSOR_PATH = `modules/${MODULE_ID}/assets/AOM_cursor_pointer.png`;
 export const DEFAULT_HOTSPOT = { x: 4, y: 4 };

@@ -34,22 +34,26 @@ function mergePlainObject(base, override) {
     return result;
 }
 
-function makeEnvironment(initialSettings = {}, { mergeThrows = false } = {}) {
+function makeEnvironment(initialSettings = {}, { legacySettings = {}, mergeThrows = false } = {}) {
     const defaults = new Map(SETTING_DEFINITIONS.map(definition => [
         definition.key,
         getSettingDefault(definition)
     ]));
-    const store = new Map(Object.entries(initialSettings).map(([key, value]) => [
-        `${MODULE_ID}.${key}`,
-        clone(value)
-    ]));
+    const store = new Map();
+    const seedSettings = (moduleId, settings) => {
+        for (const [key, value] of Object.entries(settings)) {
+            store.set(`${moduleId}.${key}`, clone(value));
+        }
+    };
+    seedSettings(MODULE_ID, initialSettings);
+    seedSettings('target-the-beastie', legacySettings);
     const writes = [];
 
     globalThis.game = {
         settings: {
             storage: {
                 get(scope) {
-                    assert.equal(scope, 'client');
+                    assert.ok(['client', 'world'].includes(scope));
                     return {
                         getItem(settingId) {
                             return store.has(settingId) ? JSON.stringify(store.get(settingId)) : null;
@@ -88,6 +92,9 @@ function makeEnvironment(initialSettings = {}, { mergeThrows = false } = {}) {
         },
         has(key) {
             return store.has(`${MODULE_ID}.${key}`);
+        },
+        getLegacy(key) {
+            return store.get(`target-the-beastie.${key}`);
         },
         writes
     };
@@ -138,6 +145,35 @@ test('legacy v1 settings migrate through the full v4 chain', async () => {
         assert.equal(env.get('cursor-states').default.hotspotY, 8);
         assert.equal(env.get('middle-mouse-actions'), 'target');
         assert.equal(env.get('cursor-sharing-mode'), 'private');
+    });
+});
+
+test('legacy module namespace settings are copied before version migration', async () => {
+    await withEnvironment({}, async (env) => {
+        await migrateSettings();
+
+        assert.equal(env.get('settings-version'), 4);
+        assert.equal(env.get('middle-mouse-actions'), 'marquee');
+        assert.equal(env.get('cursor-sharing-mode'), 'receive');
+        assert.equal(env.get('cursor-states').default.image, 'modules/show-of-hands/assets/AOM_cursor_pointer.png');
+        assert.equal(env.getLegacy('settings-version'), 4);
+    }, {
+        legacySettings: {
+            'settings-version': 4,
+            'middle-mouse-actions': 'marquee',
+            'cursor-sharing-mode': 'receive',
+            'cursor-states': {
+                default: {
+                    image: 'modules/target-the-beastie/assets/AOM_cursor_pointer.png',
+                    hotspotX: 4,
+                    hotspotY: 4,
+                    rotation: 0,
+                    width: 0,
+                    height: 0,
+                    enabled: true
+                }
+            }
+        }
     });
 });
 

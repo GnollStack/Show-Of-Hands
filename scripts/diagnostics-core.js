@@ -12,7 +12,7 @@ export const DIAGNOSTIC_ACTION_METADATA = Object.freeze({
         sideEffects: "none"
     }),
     validateSettings: Object.freeze({
-        description: "Validate registered Target The Beastie settings without saving or creating documents.",
+        description: "Validate registered Show of Hands settings without saving or creating documents.",
         createsDocuments: false,
         sideEffects: "none"
     }),

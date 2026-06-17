@@ -2,7 +2,7 @@ import { MODULE_ID } from './constants.js';
 
 export const PRIVATE_BROADCAST_WRAPPER_TARGET = "foundry.documents.User.prototype.broadcastActivity";
 
-const BYPASS_PRIVACY_FILTER = Symbol("target-the-beastie-bypass-privacy-filter");
+const BYPASS_PRIVACY_FILTER = Symbol("show-of-hands-bypass-privacy-filter");
 
 let _state = {
     installed: false,

@@ -1,4 +1,4 @@
-import { MODULE_ID } from './constants.js';
+import { MODULE_ID, MODULE_TITLE } from './constants.js';
 import { getHiddenSharedCursorUserIds, MARQUEE_LEVEL_FILTERS, MARQUEE_TOKEN_FILTERS } from './settings.js';
 
 function choiceEntries(choices, selected) {
@@ -34,7 +34,7 @@ export class AdvancedSettingsApp extends foundry.applications.api.HandlebarsAppl
             refreshDiagnostics: AdvancedSettingsApp.#onRefreshDiagnostics
         },
         window: {
-            title: "Target The Beastie Advanced Settings",
+            title: `${MODULE_TITLE} Advanced Settings`,
             icon: "fas fa-sliders",
             resizable: true
         },
@@ -42,7 +42,7 @@ export class AdvancedSettingsApp extends foundry.applications.api.HandlebarsAppl
             width: 640,
             height: 720
         },
-        classes: ["target-the-beastie", "ttb-advanced-settings"]
+        classes: ["show-of-hands", "ttb-advanced-settings"]
     };
 
     static PARTS = {
@@ -110,6 +110,6 @@ export class AdvancedSettingsApp extends foundry.applications.api.HandlebarsAppl
         await game.settings.set(MODULE_ID, "marquee-level-filter", data.get("marqueeLevelFilter") || "all");
         await game.settings.set(MODULE_ID, "hidden-shared-cursor-users", hiddenUsers);
 
-        ui.notifications.info("Advanced Target The Beastie settings saved.");
+        ui.notifications.info(`${MODULE_TITLE} advanced settings saved.`);
     }
 }

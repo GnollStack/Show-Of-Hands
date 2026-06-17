@@ -1,4 +1,4 @@
-import { MODULE_ID, SOCKET_EVENT } from './constants.js';
+import { MODULE_ID, LEGACY_MODULE_ID, SOCKET_EVENT } from './constants.js';
 import {
     getMiddleMouseActionMode,
     getMarqueeLevelFilter,
@@ -162,7 +162,7 @@ function getDebugMode() {
 
 function getGateReason(gates) {
     if (!gates.activeGMUser) return "Diagnostics require an active GM user.";
-    if (!gates.debugLogging) return "Diagnostics require Target The Beastie Debug Mode to be enabled.";
+    if (!gates.debugLogging) return "Diagnostics require Show of Hands Debug Mode to be enabled.";
     if (!gates.enableMcpDiagnostics) return "Diagnostics require Enable MCP Diagnostics to be enabled.";
     return null;
 }
@@ -232,6 +232,7 @@ function collectProfileStatus(settingsSnapshot) {
     return {
         profileSnapshot: {
             canonicalSource: `flags.${MODULE_ID}.${USER_CURSOR_CONFIG_FLAG}`,
+            legacySource: `flags.${LEGACY_MODULE_ID}.${USER_CURSOR_CONFIG_FLAG}`,
             currentUser: {
                 id: game.user?.id ?? null,
                 name: game.user?.name ?? null,
@@ -241,6 +242,7 @@ function collectProfileStatus(settingsSnapshot) {
         },
         legacySettings: {
             canonicalProfileSource: `flags.${MODULE_ID}.${USER_CURSOR_CONFIG_FLAG}`,
+            legacyProfileSource: `flags.${LEGACY_MODULE_ID}.${USER_CURSOR_CONFIG_FLAG}`,
             cursorStatesSettingKey: "cursor-states",
             useCustomCursorSettingKey: "use-custom-cursor",
             useCustomCursor: settingsSnapshot["use-custom-cursor"],

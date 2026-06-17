@@ -1,7 +1,8 @@
-import { MODULE_ID } from './constants.js';
+import { MODULE_ID, LEGACY_MODULE_ID } from './constants.js';
 import { tokenMatchesMarqueeFilter } from './settings.js';
 
-export const FIXTURE_PREFIX = "TTB-MCP-FIXTURE";
+export const FIXTURE_PREFIX = "SOH-MCP-FIXTURE";
+export const LEGACY_FIXTURE_PREFIX = "TTB-MCP-FIXTURE";
 export const FIXTURE_FLAG = "mcpAutomationFixture";
 
 const TEST_FILTERS = Object.freeze(["all", "hostile", "neutral", "friendly", "nonFriendly"]);
@@ -77,10 +78,10 @@ function makeFixtureMarker({ runId, fixtureName, scene }) {
 
 function isFixtureToken(document, { runId } = {}) {
     const name = String(document?.name ?? "");
-    if (!name.startsWith(FIXTURE_PREFIX)) return false;
+    if (!name.startsWith(FIXTURE_PREFIX) && !name.startsWith(LEGACY_FIXTURE_PREFIX)) return false;
 
     if (typeof document?.getFlag !== "function") return false;
-    const marker = document.getFlag(MODULE_ID, FIXTURE_FLAG);
+    const marker = document.getFlag(MODULE_ID, FIXTURE_FLAG) ?? document.getFlag(LEGACY_MODULE_ID, FIXTURE_FLAG);
     if (!marker || typeof marker !== "object") return false;
     if (marker.worldId !== getWorldId()) return false;
     if (marker.sceneId !== getActiveScene()?.id) return false;

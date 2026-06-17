@@ -1,6 +1,6 @@
 # END USER LICENSE AGREEMENT (EULA)
 
-**Software:** Target The Beastie
+**Software:** Show of Hands
 **Author:** GnollStack
 **Copyright (c) 2026 GnollStack. All Rights Reserved.**
 
