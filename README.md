@@ -2,7 +2,7 @@
 
 # Show of Hands
 
-**A simple module for targeting faster, drawing marquee selections, and making every cursor at the table feel intentional and immerisve.**
+**A simple module for targeting faster, drawing marquee selections, and making every cursor at the table feel intentional and immersive.**
 
 [![Latest Release](https://img.shields.io/github/v/release/GnollStack/Target-The-Beastie?label=Latest%20Release&style=flat-square)](https://github.com/GnollStack/Target-The-Beastie/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/GnollStack/Target-The-Beastie/total?style=flat-square&color=green)](https://github.com/GnollStack/Target-The-Beastie/releases)
@@ -10,7 +10,7 @@
 [![Foundry VTT](https://img.shields.io/badge/Foundry-v14%2B-orange?style=flat-square)](https://foundryvtt.com)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Buy%20a%20Steak-FF5E5B?style=flat-square&logo=ko-fi&logoColor=white)](https://ko-fi.com/gnollstack)
 
-*Who doesnt want customized cursors!?*
+*Who doesn't like customized cursors!?*
 
 [Features](#what-you-get) - [Quick Start](#quick-start) - [Preview](#preview) - [Installation](#installation) - [Use It For](#use-it-for) - [Compatibility](#compatibility) - [API](#developer-api) - [Community](#community) - [Contributing](#contributing) - [AI Use](#ai-assisted-development) - [Support](#support-development) - [License](#license-permissions)
 
@@ -387,7 +387,7 @@ https://github.com/GnollStack/Target-The-Beastie/releases/latest/download/module
 
 ## Compatibility
 
-**Module version:** `14.0.2`
+**Module version:** `14.1.0`
 
 **Foundry VTT:** v14+, verified on v14.363.
 
@@ -580,7 +580,7 @@ For licensing inquiries or permission slips:
 
 <div align="center">
 
-**Author:** [GnollStack](https://github.com/GnollStack) - **Compatibility:** Foundry VTT v14+ - **Version:** 14.0.2
+**Author:** [GnollStack](https://github.com/GnollStack) - **Compatibility:** Foundry VTT v14+ - **Version:** 14.1.0
 
 [Back to Top](#show-of-hands)
 
