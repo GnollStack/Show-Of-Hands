@@ -23,8 +23,8 @@
     }
   ],
   "url": "https://github.com/GnollStack/Target-The-Beastie",
-  "manifest": "https://github.com/GnollStack/Target-The-Beastie/releases/latest/download/module.json",
-  "download": "https://github.com/GnollStack/Target-The-Beastie/releases/latest/download/show-of-hands.zip",
+  "manifest": "https://github.com/GnollStack/Target-The-Beastie/releases/download/V14.1.0/module.json",
+  "download": "https://github.com/GnollStack/Target-The-Beastie/releases/download/V14.1.0/show-of-hands.zip",
   "license": "LICENSE.txt",
   "readme": "https://github.com/GnollStack/Target-The-Beastie/blob/main/README.md",
   "bugs": "https://github.com/GnollStack/Target-The-Beastie/issues",
