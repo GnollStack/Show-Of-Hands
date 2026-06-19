@@ -5,6 +5,8 @@ import { computeResizeOutput, computeRotationOutput, computeOverlayNamePlacement
 
 export const DIAGNOSTICS_API_VERSION = 1;
 
+// This manifest is the reviewer-facing contract for diagnostics behavior.
+// Read-only actions stay document-free; automation is the only fixture path.
 export const DIAGNOSTIC_ACTION_METADATA = Object.freeze({
     getStatus: Object.freeze({
         description: "Return a structured module/runtime diagnostics snapshot.",
@@ -70,6 +72,8 @@ export const DIAGNOSTIC_ACTION_METADATA = Object.freeze({
 
 export const DIAGNOSTIC_ACTION_NAMES = Object.freeze(Object.keys(DIAGNOSTIC_ACTION_METADATA));
 
+// Keep these lists in step with the metadata above. The smoke check uses them
+// to catch any future action that changes documents without saying so.
 export const READ_ONLY_DIAGNOSTIC_ACTION_NAMES = Object.freeze([
     "getStatus",
     "validateSettings",

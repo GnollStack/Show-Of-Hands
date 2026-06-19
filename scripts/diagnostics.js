@@ -194,6 +194,8 @@ function getDiagnosticsGate() {
 
 function getMutationAvailability(args = {}) {
     const diagnostics = getDiagnosticsGate();
+    // Fixture automation needs both the diagnostics gate and a per-call opt-in.
+    // That keeps normal status checks and smoke checks read-only by default.
     const confirmMutation = args.confirmMutation === true;
     const gates = {
         ...diagnostics.gates,
@@ -271,6 +273,8 @@ function getCursorControlSettings(settingsSnapshot) {
 }
 
 function runGatedAction(action, args, handler) {
+    // The diagnostics API is for GM troubleshooting and review. It stays closed
+    // unless debug logging and the explicit diagnostics setting are both on.
     const gate = getDiagnosticsGate();
     if (!gate.available) {
         return {
@@ -334,6 +338,8 @@ async function runGatedActionAsync(action, args, handler) {
 }
 
 async function runGatedMutationActionAsync(action, args, handler) {
+    // Mutating actions are intentionally separate from the read-only gate so
+    // callers must acknowledge temporary fixture work on each request.
     const gate = getMutationAvailability(args ?? {});
     if (!gate.available) {
         return {
@@ -800,6 +806,8 @@ export function createDiagnostics({
 
         runSmokeTests(args = {}) {
             return runGatedActionAsync("runSmokeTests", args, async () => {
+                // These are runtime self-checks. They use the shared core helpers
+                // directly and never import or read files from the tests folder.
                 const beforeCounts = getWorldDataCounts();
                 const settingsSnapshot = collectSettingsSnapshot();
                 const settingsValidation = validateSettingsSnapshot(settingsSnapshot);

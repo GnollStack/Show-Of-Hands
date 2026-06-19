@@ -2,7 +2,7 @@
 
 # Show of Hands
 
-**A Bakshi's Bazaar module for targeting faster, drawing marquee selections, and making every cursor at the table feel intentional.**
+**A simple module for targeting faster, drawing marquee selections, and making every cursor at the table feel intentional and immerisve.**
 
 [![Latest Release](https://img.shields.io/github/v/release/GnollStack/Target-The-Beastie?label=Latest%20Release&style=flat-square)](https://github.com/GnollStack/Target-The-Beastie/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/GnollStack/Target-The-Beastie/total?style=flat-square&color=green)](https://github.com/GnollStack/Target-The-Beastie/releases)
@@ -10,7 +10,7 @@
 [![Foundry VTT](https://img.shields.io/badge/Foundry-v14%2B-orange?style=flat-square)](https://foundryvtt.com)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Buy%20a%20Steak-FF5E5B?style=flat-square&logo=ko-fi&logoColor=white)](https://ko-fi.com/gnollstack)
 
-*For GMs and players who want targeting, cursors, and table presence to stay out of the way until they matter.*
+*Who doesnt want customized cursors!?*
 
 [Features](#what-you-get) - [Quick Start](#quick-start) - [Preview](#preview) - [Installation](#installation) - [Use It For](#use-it-for) - [Compatibility](#compatibility) - [API](#developer-api) - [Community](#community) - [Contributing](#contributing) - [AI Use](#ai-assisted-development) - [Support](#support-development) - [License](#license-permissions)
 
@@ -42,19 +42,13 @@
 4. Open **Cursor Settings** to choose cursor images, hotspots, cursor sizes, and shared overlay name placement.
 5. Set **Cursor Sharing Mode** to decide whether you share your cursor, receive only, or stay private.
 
-[IMAGE: Module settings showing Middle-Mouse Actions and Cursor Settings button]
-
 ---
 
 <a id="preview"></a>
 
 ## Preview
 
-[IMAGE: Cursor Settings window with hotspot preview]
-
-[IMAGE: Marquee box selecting multiple tokens]
-
-[IMAGE: Shared cursors from multiple connected players]
+<img width="1608" height="660" alt="Convert to GIF project - June 18, 2026 at 19 09 25" src="https://github.com/user-attachments/assets/6943fa8f-f1d9-4b20-892e-033ff85263d8" />
 
 ---
 
@@ -84,7 +78,7 @@
 - GMs and co-GMs can target all tokens, including hidden ones.
 - Players can only target tokens visible to them.
 
-[IMAGE: Marquee targeting with hostile-token filter active]
+<img width="1027" height="863" alt="image" src="https://github.com/user-attachments/assets/e34e38d2-e63d-4f7d-8986-0088b273d17e" />
 
 <details>
 <summary><strong>Marquee targeting details</strong></summary>
@@ -114,7 +108,7 @@
 
 Per-state customization includes FilePicker-backed image paths, click hotspot position, rotation from `0-359` degrees, width and height controls, aspect-ratio locking, state enablement, live preview, native fallback previews, and profile copy/reset controls. Show of Hands ships without cursor artwork; leave an image path empty to use Foundry's native cursor for that state.
 
-[IMAGE: Cursor Settings tabs showing Default, Hover, Target, and Panning states]
+<img width="947" height="896" alt="image" src="https://github.com/user-attachments/assets/b6577dfe-5a2f-4dcf-a65e-754ac434ddbe" />
 
 <details>
 <summary><strong>Cursor configuration details</strong></summary>

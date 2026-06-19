@@ -4,7 +4,10 @@ import { test } from 'node:test';
 import { DEFAULT_HOTSPOT, MODULE_ID } from '../scripts/constants.js';
 import {
     SETTING_DEFINITIONS,
+    USER_CURSOR_CONFIG_FLAG,
     getSettingDefault,
+    getUserCursorConfig,
+    migrateLegacyUserCursorConfig,
     migrateSettings
 } from '../scripts/settings.js';
 
@@ -124,6 +127,51 @@ test('fresh install without stored legacy keys does not write migration settings
 
         assert.equal(env.has('settings-version'), false);
         assert.deepEqual(env.writes, []);
+    });
+});
+
+test('legacy user cursor flag survives inactive old package scope', async () => {
+    await withEnvironment({}, async () => {
+        const legacyProfile = {
+            useCustomCursor: true,
+            cursorStates: {
+                default: {
+                    image: 'modules/target-the-beastie/custom/default.png',
+                    hotspotX: 3,
+                    hotspotY: 4,
+                    rotation: 0,
+                    width: 0,
+                    height: 0,
+                    enabled: true
+                }
+            }
+        };
+        const writes = [];
+        const user = {
+            flags: {
+                'target-the-beastie': {
+                    [USER_CURSOR_CONFIG_FLAG]: legacyProfile
+                }
+            },
+            getFlag(scope) {
+                if (scope === 'target-the-beastie') throw new Error('Flag scope "target-the-beastie" is not valid or not currently active');
+                return undefined;
+            },
+            async setFlag(scope, key, value) {
+                writes.push({ scope, key, value: clone(value) });
+                return value;
+            }
+        };
+
+        const config = getUserCursorConfig(user);
+        assert.equal(config.cursorStates.default.image, 'modules/show-of-hands/custom/default.png');
+
+        const result = await migrateLegacyUserCursorConfig(user);
+        assert.equal(result.migrated, true);
+        assert.equal(writes.length, 1);
+        assert.equal(writes[0].scope, MODULE_ID);
+        assert.equal(writes[0].key, USER_CURSOR_CONFIG_FLAG);
+        assert.equal(writes[0].value.cursorStates.default.image, 'modules/show-of-hands/custom/default.png');
     });
 });
 

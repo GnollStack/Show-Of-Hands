@@ -1,11 +1,14 @@
 import { MODULE_ID, LEGACY_MODULE_ID } from './constants.js';
 import { tokenMatchesMarqueeFilter } from './settings.js';
 
+// Live-world automation for MCP diagnostics only. It never reads the test
+// suite; when explicitly confirmed, it creates flagged temporary tokens and
+// cleans up only tokens that still carry those module-owned markers.
 export const FIXTURE_PREFIX = "SOH-MCP-FIXTURE";
 export const LEGACY_FIXTURE_PREFIX = "TTB-MCP-FIXTURE";
 export const FIXTURE_FLAG = "mcpAutomationFixture";
 
-const TEST_FILTERS = Object.freeze(["all", "hostile", "neutral", "friendly", "nonFriendly"]);
+const MARQUEE_FILTER_SAMPLES = Object.freeze(["all", "hostile", "neutral", "friendly", "nonFriendly"]);
 
 function collectionSize(collection) {
     if (!collection) return 0;
@@ -76,12 +79,24 @@ function makeFixtureMarker({ runId, fixtureName, scene }) {
     };
 }
 
+function readDocumentFlag(document, scope, key) {
+    try {
+        if (typeof document?.getFlag === "function") return document.getFlag(scope, key);
+    } catch (error) {
+        if (scope !== LEGACY_MODULE_ID) throw error;
+        // Foundry rejects inactive old package scopes; raw flags may still hold
+        // cleanup markers from pre-rename diagnostics runs.
+    }
+    return document?.flags?.[scope]?.[key];
+}
+
 function isFixtureToken(document, { runId } = {}) {
     const name = String(document?.name ?? "");
     if (!name.startsWith(FIXTURE_PREFIX) && !name.startsWith(LEGACY_FIXTURE_PREFIX)) return false;
 
-    if (typeof document?.getFlag !== "function") return false;
-    const marker = document.getFlag(MODULE_ID, FIXTURE_FLAG) ?? document.getFlag(LEGACY_MODULE_ID, FIXTURE_FLAG);
+    // Name plus marker keeps cleanup narrow: old fixtures can be removed after
+    // the rename, but unrelated tokens with similar names are left alone.
+    const marker = readDocumentFlag(document, MODULE_ID, FIXTURE_FLAG) ?? readDocumentFlag(document, LEGACY_MODULE_ID, FIXTURE_FLAG);
     if (!marker || typeof marker !== "object") return false;
     if (marker.worldId !== getWorldId()) return false;
     if (marker.sceneId !== getActiveScene()?.id) return false;
@@ -106,6 +121,8 @@ function makeFilterToken(document) {
 }
 
 async function createTokenFixtures(scene, runId) {
+    // Use Foundry's built-in mystery-man icon so release zips do not need any
+    // bundled test art or generated assets for diagnostics.
     const dispositions = getDispositions();
     const baseX = Math.max(0, Math.round((canvas?.dimensions?.sceneX ?? 100) + 100));
     const baseY = Math.max(0, Math.round((canvas?.dimensions?.sceneY ?? 100) + 100));
@@ -156,7 +173,7 @@ async function exerciseMarqueeFilters(createdTokens) {
 
     const results = [];
     try {
-        for (const filter of TEST_FILTERS) {
+        for (const filter of MARQUEE_FILTER_SAMPLES) {
             await game.settings.set(MODULE_ID, "marquee-token-filter", filter);
             results.push({
                 filter,

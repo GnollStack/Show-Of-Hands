@@ -483,19 +483,31 @@ export function normalizeUserCursorConfig(config = {}) {
     return merged;
 }
 
+function readUserCursorConfigFlag(user, scope) {
+    if (!user) return undefined;
+    try {
+        if (typeof user.getFlag === "function") return user.getFlag(scope, USER_CURSOR_CONFIG_FLAG);
+    } catch (error) {
+        if (scope !== LEGACY_MODULE_ID) throw error;
+        // Foundry rejects getFlag for inactive package scopes. Legacy profile
+        // data can still be present on the raw flags object after a rename.
+    }
+    return user.flags?.[scope]?.[USER_CURSOR_CONFIG_FLAG];
+}
+
 export function getUserCursorConfig(user = game.user) {
-    const stored = user?.getFlag?.(MODULE_ID, USER_CURSOR_CONFIG_FLAG);
-    const legacy = stored === undefined ? user?.getFlag?.(LEGACY_MODULE_ID, USER_CURSOR_CONFIG_FLAG) : undefined;
+    const stored = readUserCursorConfigFlag(user, MODULE_ID);
+    const legacy = stored === undefined ? readUserCursorConfigFlag(user, LEGACY_MODULE_ID) : undefined;
     return normalizeUserCursorConfig(stored ?? legacy ?? {});
 }
 
 export async function migrateLegacyUserCursorConfig(user = game.user) {
-    if (!user?.getFlag || !user?.setFlag) return { migrated: false, reason: "user-flags-unavailable" };
+    if (!user?.setFlag) return { migrated: false, reason: "user-flags-unavailable" };
 
-    const stored = user.getFlag(MODULE_ID, USER_CURSOR_CONFIG_FLAG);
+    const stored = readUserCursorConfigFlag(user, MODULE_ID);
     if (stored !== undefined) return { migrated: false, reason: "current-profile-exists" };
 
-    const legacy = user.getFlag(LEGACY_MODULE_ID, USER_CURSOR_CONFIG_FLAG);
+    const legacy = readUserCursorConfigFlag(user, LEGACY_MODULE_ID);
     if (legacy === undefined) return { migrated: false, reason: "legacy-profile-missing" };
 
     const normalized = normalizeUserCursorConfig(legacy);
