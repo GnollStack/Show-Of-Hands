@@ -340,9 +340,6 @@ https://github.com/GnollStack/Target-The-Beastie/releases/latest/download/module
 3. Enable the module in your world.
 4. Configure it under **Module Settings > Show of Hands**.
 
-> [!IMPORTANT]
-> Show of Hands was formerly developed under the package ID `target-the-beastie`. Current releases use `show-of-hands`; legacy settings and cursor profiles are copied into the new namespace on first launch. Manual installs should place the module at `<FoundryData>/Data/modules/show-of-hands/`.
-
 | Requirement | Version |
 | --- | --- |
 | Foundry VTT | v14+ (verified on v14.363) |
@@ -387,7 +384,7 @@ https://github.com/GnollStack/Target-The-Beastie/releases/latest/download/module
 
 ## Compatibility
 
-**Module version:** `14.0.2`
+**Module version:** `14.1.0`
 
 **Foundry VTT:** v14+, verified on v14.363.
 
