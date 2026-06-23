@@ -248,18 +248,6 @@ Automation creates temporary active-scene token fixtures named with the `SOH-MCP
 </details>
 
 <details>
-<summary><strong>Performance notes</strong></summary>
-
-Earlier versions of the hover system could cause severe FPS drops when sweeping quickly across dense UI, especially actor inventories and item lists.
-
-- **Problem:** the module used a document-wide JavaScript hover detector that reacted to every `mouseover` across the UI and toggled broad hover styling repeatedly.
-- **Symptom:** moving the cursor rapidly across item rows, controls, and nested sheet elements could tank FPS far more than the default Foundry cursor.
-- **Fix:** token hover is now still driven by Foundry's `hoverToken` hook, but common UI cursor states use CSS selectors and Foundry's native cursor families instead of document-wide JavaScript hover listeners.
-- **Important implementation detail:** Foundry writes its `--cursor-*` variables inline on the root element, so the module restores Foundry's cursor config first and then applies its own cursor-variable overrides inline as well. A stylesheet-only override is not enough.
-
-</details>
-
-<details>
 <summary><strong>Troubleshooting checks</strong></summary>
 
 **Cursors not appearing for other players:**
