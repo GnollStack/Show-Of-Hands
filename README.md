@@ -4,9 +4,9 @@
 
 **A simple module for targeting faster, drawing marquee selections, and making every cursor at the table feel intentional and immersive.**
 
-[![Latest Release](https://img.shields.io/github/v/release/GnollStack/Target-The-Beastie?label=Latest%20Release&style=flat-square)](https://github.com/GnollStack/Target-The-Beastie/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/GnollStack/Target-The-Beastie/total?style=flat-square&color=green)](https://github.com/GnollStack/Target-The-Beastie/releases)
-[![Downloads@latest](https://img.shields.io/github/downloads/GnollStack/Target-The-Beastie/latest/total?style=flat-square)](https://github.com/GnollStack/Target-The-Beastie/releases/latest)
+[![Latest Release](https://img.shields.io/github/v/release/GnollStack/Show-Of-Hands?label=Latest%20Release&style=flat-square)](https://github.com/GnollStack/Show-Of-Hands/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/GnollStack/Show-Of-Hands/total?style=flat-square&color=green)](https://github.com/GnollStack/Show-Of-Hands/releases)
+[![Downloads@latest](https://img.shields.io/github/downloads/GnollStack/Show-Of-Hands/latest/total?style=flat-square)](https://github.com/GnollStack/Show-Of-Hands/releases/latest)
 [![Foundry VTT](https://img.shields.io/badge/Foundry-v14%2B-orange?style=flat-square)](https://foundryvtt.com)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Buy%20a%20Steak-FF5E5B?style=flat-square&logo=ko-fi&logoColor=white)](https://ko-fi.com/gnollstack)
 
@@ -234,7 +234,7 @@ The normal hard refresh path from MCP is the bridge-level `reload-foundry-client
 
 `validateV14Runtime()` is read-only and checks the V14 ApplicationV2, DialogV2, cursor, FilePicker, FormDataExtended, and canvas cursor contracts used by the module. It also reports Scene Levels observations when Foundry exposes them.
 
-A diagnostic warning that legacy `cursor-states` differs from `flags.show-of-hands.cursorConfig` is expected after per-user profiles exist. The user flag profile is canonical. Legacy profiles from `flags.target-the-beastie.cursorConfig` are read and migrated for compatibility.
+A diagnostic warning that legacy `cursor-states` differs from `flags.show-of-hands.cursorConfig` is expected after per-user profiles exist. The user flag profile is canonical.
 
 Mutating fixture checks are paired with **Enable MCP Diagnostics** and still require an explicit `confirmMutation: true` argument:
 
@@ -244,18 +244,6 @@ game.modules.get("show-of-hands").api.diagnostics.actions.cleanupFixtures({ conf
 ```
 
 Automation creates temporary active-scene token fixtures named with the `SOH-MCP-FIXTURE` prefix and flagged with `flags.show-of-hands.mcpAutomationFixture`. Cleanup recognizes old `TTB-MCP-FIXTURE` fixtures for compatibility, but new automation uses the Show of Hands prefix. Keep MCP diagnostics disabled during normal play and use automation only in dedicated test worlds.
-
-</details>
-
-<details>
-<summary><strong>Performance notes</strong></summary>
-
-Earlier versions of the hover system could cause severe FPS drops when sweeping quickly across dense UI, especially actor inventories and item lists.
-
-- **Problem:** the module used a document-wide JavaScript hover detector that reacted to every `mouseover` across the UI and toggled broad hover styling repeatedly.
-- **Symptom:** moving the cursor rapidly across item rows, controls, and nested sheet elements could tank FPS far more than the default Foundry cursor.
-- **Fix:** token hover is now still driven by Foundry's `hoverToken` hook, but common UI cursor states use CSS selectors and Foundry's native cursor families instead of document-wide JavaScript hover listeners.
-- **Important implementation detail:** Foundry writes its `--cursor-*` variables inline on the root element, so the module restores Foundry's cursor config first and then applies its own cursor-variable overrides inline as well. A stylesheet-only override is not enough.
 
 </details>
 
@@ -335,7 +323,7 @@ document.getElementById("board")?.classList.toString()
 2. Search for "Show of Hands", or paste this manifest URL:
 
 ```text
-https://github.com/GnollStack/Target-The-Beastie/releases/latest/download/module.json
+https://github.com/GnollStack/Show-Of-Hands/releases/latest/download/module.json
 ```
 
 > [!IMPORTANT]
@@ -440,7 +428,6 @@ api.syncHiddenRemoteCursors()
 
 ```javascript
 ShowOfHands.getDebugState()
-TargetTheBeastie.getDebugState() // legacy alias
 ```
 
 </details>
@@ -496,7 +483,7 @@ game.modules.get("show-of-hands").api.diagnostics.actions.openWindow({ window: "
 
 ## Community
 
-- **Report bugs** - [open an issue](https://github.com/GnollStack/Target-The-Beastie/issues) with your Foundry version, module version, steps to reproduce, console logs, and screenshots or short clips when useful.
+- **Report bugs** - [open an issue](https://github.com/GnollStack/Show-Of-Hands/issues) with your Foundry version, module version, steps to reproduce, console logs, and screenshots or short clips when useful.
 - **Request features** - tell me what happened at your table and what you wish the module could do.
 - **Star the repo** - if the module is useful at your table, a star helps other GMs find it.
 - **Watch releases** - follow the repo for updates, compatibility notes, and new feature releases.
