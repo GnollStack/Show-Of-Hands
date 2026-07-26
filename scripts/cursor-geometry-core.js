@@ -6,7 +6,29 @@
  * both the tests and the live cursor rendering rely on these numbers.
  */
 
-import { CURSOR_SIZE_MAX, NAME_POSITION_PRESETS } from './constants.js';
+import { CURSOR_SIZE_MAX, CURSOR_SOURCE_HOTSPOT_MAX, NAME_POSITION_PRESETS } from './constants.js';
+
+/**
+ * Return the largest selectable source-pixel coordinate for each image axis.
+ * Unknown/loading images retain the profile safety ceiling until dimensions
+ * become available; a loaded image uses its actual last pixel.
+ */
+export function computeCursorSourceHotspotBounds(
+    naturalW,
+    naturalH,
+    max = CURSOR_SOURCE_HOTSPOT_MAX
+) {
+    const requestedLimit = Math.floor(Number(max));
+    const limit = Number.isFinite(requestedLimit) && requestedLimit >= 0
+        ? requestedLimit
+        : CURSOR_SOURCE_HOTSPOT_MAX;
+    const axisMax = dimension => {
+        const size = Math.floor(Number(dimension));
+        if (!Number.isFinite(size) || size <= 0) return limit;
+        return Math.min(limit, Math.max(0, size - 1));
+    };
+    return { maxX: axisMax(naturalW), maxY: axisMax(naturalH) };
+}
 
 /**
  * Work out the display size after an optional resize. If only width or height
@@ -15,8 +37,12 @@ import { CURSOR_SIZE_MAX, NAME_POSITION_PRESETS } from './constants.js';
  */
 export function computeCursorDisplaySize(naturalW, naturalH, targetW = 0, targetH = 0) {
     if (targetW > 0 && targetH > 0) return { width: targetW, height: targetH };
-    if (targetW > 0) return { width: targetW, height: Math.round(naturalH * (targetW / naturalW)) };
-    if (targetH > 0) return { width: Math.round(naturalW * (targetH / naturalH)), height: targetH };
+    if (targetW > 0) {
+        return { width: targetW, height: Math.max(1, Math.round(naturalH * (targetW / naturalW))) };
+    }
+    if (targetH > 0) {
+        return { width: Math.max(1, Math.round(naturalW * (targetH / naturalH))), height: targetH };
+    }
     return { width: naturalW, height: naturalH };
 }
 
@@ -28,11 +54,13 @@ export function computeCursorDisplaySize(naturalW, naturalH, targetW = 0, target
 export function computeResizeOutput(displayW, displayH, hotspotX, hotspotY, max = CURSOR_SIZE_MAX) {
     const maxDim = Math.max(displayW, displayH);
     const scale = maxDim > max ? max / maxDim : 1;
+    const width = Math.ceil(displayW * scale);
+    const height = Math.ceil(displayH * scale);
     return {
-        width: Math.ceil(displayW * scale),
-        height: Math.ceil(displayH * scale),
-        hotspotX: Math.max(0, Math.round(hotspotX * scale)),
-        hotspotY: Math.max(0, Math.round(hotspotY * scale)),
+        width,
+        height,
+        hotspotX: Math.min(Math.max(0, width - 1), Math.max(0, Math.round(hotspotX * scale))),
+        hotspotY: Math.min(Math.max(0, height - 1), Math.max(0, Math.round(hotspotY * scale))),
         scale
     };
 }
@@ -44,8 +72,13 @@ export function computeResizeOutput(displayW, displayH, hotspotX, hotspotY, max 
  */
 export function computeRotationOutput(displayW, displayH, hotspotX, hotspotY, degrees, max = CURSOR_SIZE_MAX) {
     const rad = (degrees * Math.PI) / 180;
-    const cos = Math.cos(rad);
-    const sin = Math.sin(rad);
+    const snapTrig = value => {
+        if (Math.abs(value) < 1e-12) return 0;
+        if (Math.abs(Math.abs(value) - 1) < 1e-12) return Math.sign(value);
+        return value;
+    };
+    const cos = snapTrig(Math.cos(rad));
+    const sin = snapTrig(Math.sin(rad));
 
     let newW = Math.ceil(Math.abs(displayW * cos) + Math.abs(displayH * sin));
     let newH = Math.ceil(Math.abs(displayW * sin) + Math.abs(displayH * cos));
@@ -70,17 +103,84 @@ export function computeRotationOutput(displayW, displayH, hotspotX, hotspotY, de
     return {
         width: newW,
         height: newH,
-        hotspotX: Math.max(0, Math.round(newHotspotX)),
-        hotspotY: Math.max(0, Math.round(newHotspotY)),
+        hotspotX: Math.min(Math.max(0, newW - 1), Math.max(0, Math.round(newHotspotX))),
+        hotspotY: Math.min(Math.max(0, newH - 1), Math.max(0, Math.round(newHotspotY))),
         scale,
         rad
     };
 }
 
 /**
+ * Build the resize/rotation geometry from source-image coordinates. Stored
+ * hotspots are measured on the natural image, so resize them independently on
+ * each axis before applying rotation or the browser cursor size cap.
+ *
+ * @returns {{displayWidth:number, displayHeight:number, width:number, height:number, hotspotX:number, hotspotY:number, scale:number, rad?:number}}
+ */
+export function computeCursorProcessingGeometry(
+    naturalW,
+    naturalH,
+    targetW,
+    targetH,
+    hotspotX,
+    hotspotY,
+    degrees = 0,
+    max = CURSOR_SIZE_MAX
+) {
+    const { width: displayWidth, height: displayHeight } = computeCursorDisplaySize(
+        naturalW,
+        naturalH,
+        targetW,
+        targetH
+    );
+    const displayHotspotX = hotspotX * (naturalW > 0 ? displayWidth / naturalW : 1);
+    const displayHotspotY = hotspotY * (naturalH > 0 ? displayHeight / naturalH : 1);
+    const output = degrees
+        ? computeRotationOutput(displayWidth, displayHeight, displayHotspotX, displayHotspotY, degrees, max)
+        : computeResizeOutput(displayWidth, displayHeight, displayHotspotX, displayHotspotY, max);
+
+    return { displayWidth, displayHeight, ...output };
+}
+
+/**
+ * Lay out the configuration preview exactly like the processed cursor raster:
+ * an unrotated image centered inside its final rotated/capped output box, with
+ * the hotspot expressed in that output box.
+ */
+export function computeCursorPreviewGeometry(
+    naturalW,
+    naturalH,
+    targetW,
+    targetH,
+    hotspotX,
+    hotspotY,
+    degrees = 0,
+    max = CURSOR_SIZE_MAX
+) {
+    const output = computeCursorProcessingGeometry(
+        naturalW,
+        naturalH,
+        targetW,
+        targetH,
+        hotspotX,
+        hotspotY,
+        degrees,
+        max
+    );
+    const imageWidth = degrees ? output.displayWidth * output.scale : output.width;
+    const imageHeight = degrees ? output.displayHeight * output.scale : output.height;
+    return {
+        ...output,
+        imageWidth,
+        imageHeight,
+        imageLeft: (output.width - imageWidth) / 2,
+        imageTop: (output.height - imageHeight) / 2
+    };
+}
+
+/**
  * Place the overlay name relative to the cursor hotspot. Positions come from
- * the image center, matching the config preview; presets are nudged outside the
- * sprite edges when custom art is present.
+ * the image center, matching the config preview exactly.
  *
  * @returns {{anchorX:number, anchorY:number, posX:number, posY:number}|null}
  *          null means the caller should leave the current label placement alone.
@@ -118,18 +218,12 @@ export function computeOverlayNamePlacement({
     const preset = presets[namePosition];
     if (!preset) return null;
 
-    let posX = centerOffX + s * preset.offsetX;
-    let posY = centerOffY + s * preset.offsetY;
-
-    if (hasSprite) {
-        const gap = s * 0.2;
-        // Keep preset labels just outside the sprite when custom art is present.
-        if (preset.anchorY === 0) posY = Math.max(posY, spriteHeight * (1 - spriteAnchorY) + gap);
-        if (preset.anchorY === 1) posY = Math.min(posY, -spriteHeight * spriteAnchorY - gap);
-        if (preset.anchorX === 0) posX = Math.max(posX, spriteWidth * (1 - spriteAnchorX) + gap);
-    }
-
-    return { anchorX: preset.anchorX, anchorY: preset.anchorY, posX, posY };
+    return {
+        anchorX: preset.anchorX,
+        anchorY: preset.anchorY,
+        posX: centerOffX + s * preset.offsetX,
+        posY: centerOffY + s * preset.offsetY
+    };
 }
 
 /**

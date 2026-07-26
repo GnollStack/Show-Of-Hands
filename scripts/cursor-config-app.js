@@ -4,10 +4,11 @@
  * images, hotspots, size, rotation, and overlay name placement.
  */
 
-import { MODULE_ID, CURSOR_SIZE_MAX, CURSOR_STATE_KEYS, CURSOR_STATE_DETAILS, NAME_POSITION_PRESETS, NAME_LABEL_PREVIEW_SCALE, debugLog } from './constants.js';
+import { MODULE_ID, CURSOR_POINTER_SIZE, CURSOR_SIZE_MAX, CURSOR_SOURCE_HOTSPOT_MAX, CURSOR_STATE_KEYS, CURSOR_STATE_DETAILS, NAME_POSITION_PRESETS, NAME_LABEL_OFFSET_SCALE, debugLog } from './constants.js';
 import { getDefaultCursorStates, getDefaultUserCursorConfig, getUserCursorConfig, setUserCursorConfig, summarizeCursorConfigForLog } from './settings.js';
 import { applyCursorStyles } from './cursor-styles.js';
 import { refreshSharedCursorImage } from './cursor-sharing.js';
+import { computeCursorPreviewGeometry, computeCursorSourceHotspotBounds } from './cursor-geometry-core.js';
 
 function escapeHtml(value) {
     // Use Foundry's escaper when it exists; keep a tiny fallback for tests and
@@ -96,7 +97,8 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
                 isDefault: key === "default",
                 ...details,
                 disabledFallbackLabel: details.disabledFallbackKey ? CURSOR_STATE_DETAILS[details.disabledFallbackKey]?.label ?? "Default" : null,
-                ...states[key]
+                ...states[key],
+                hotspotMax: CURSOR_SOURCE_HOTSPOT_MAX
             };
         });
         const namePosition = config.namePosition;
@@ -149,45 +151,110 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
         };
     }
 
+    static #syncHotspotSliderBounds(inputs) {
+        const { image, previewImg, hotspotX: xSlider, hotspotY: ySlider } = inputs;
+        const hasConfiguredImage = typeof image?.value === 'string' && image.value.trim().length > 0;
+        const hasLoadedImage = hasConfiguredImage && previewImg?.complete !== false
+            && previewImg?.naturalWidth > 0 && previewImg?.naturalHeight > 0;
+        const { maxX, maxY } = computeCursorSourceHotspotBounds(
+            hasLoadedImage ? previewImg.naturalWidth : 0,
+            hasLoadedImage ? previewImg.naturalHeight : 0
+        );
+        const syncSlider = (slider, max) => {
+            if (!slider) return 0;
+            slider.max = String(max);
+            const value = Number.parseInt(slider.value, 10);
+            const clamped = Number.isFinite(value) ? Math.min(max, Math.max(0, value)) : 0;
+            slider.value = String(clamped);
+            return clamped;
+        };
+        return {
+            hasLoadedImage,
+            x: syncSlider(xSlider, maxX),
+            y: syncSlider(ySlider, maxY)
+        };
+    }
+
     static #updateStatePreview(section) {
         const inputs = CursorConfigApp.#getStateInputs(section);
         if (!inputs) return;
         const { previewImg, hotspotDot, hotspotX: xSlider, hotspotY: ySlider, rotation: rotSlider, xValue, yValue, rotValue, width: wInput, height: hInput } = inputs;
         if (!xSlider || !ySlider) return;
 
-        const x = parseInt(xSlider.value);
-        const y = parseInt(ySlider.value);
+        const { hasLoadedImage, x, y } = CursorConfigApp.#syncHotspotSliderBounds(inputs);
         const rot = rotSlider ? parseInt(rotSlider.value) : 0;
         if (xValue) xValue.textContent = x;
         if (yValue) yValue.textContent = y;
         if (rotValue) rotValue.textContent = rot;
 
-        if (previewImg) {
-            const w = parseInt(wInput?.value) || 0;
-            const h = parseInt(hInput?.value) || 0;
-            previewImg.style.width = w > 0 ? `${w}px` : '';
-            previewImg.style.height = h > 0 ? `${h}px` : '';
-            previewImg.style.transform = rot ? `rotate(${rot}deg)` : '';
+        if (!previewImg) return;
+
+        const wrapper = previewImg.closest?.('.ttb-preview-wrapper');
+        if (!hasLoadedImage) {
+            // Keep a small anchor for the overlay-name preview, but do not show
+            // fabricated cursor geometry or a stale hotspot for empty/broken art.
+            if (wrapper) {
+                wrapper.style.width = `${CURSOR_POINTER_SIZE}px`;
+                wrapper.style.height = `${CURSOR_POINTER_SIZE}px`;
+            }
+            previewImg.style.visibility = 'hidden';
+            if (hotspotDot) hotspotDot.style.display = 'none';
+            CursorConfigApp.#queueNameLabelPosition(section);
+            return;
         }
 
-        if (hotspotDot && previewImg) {
-            const displayW = previewImg.offsetWidth || previewImg.naturalWidth || 64;
-            const displayH = previewImg.offsetHeight || previewImg.naturalHeight || 64;
-            if (rot === 0) {
-                hotspotDot.style.left = `${x - 3}px`;
-                hotspotDot.style.top = `${y - 3}px`;
-            } else {
-                const cx = displayW / 2;
-                const cy = displayH / 2;
-                const rad = (rot * Math.PI) / 180;
-                const dx = x - cx;
-                const dy = y - cy;
-                const rx = cx + dx * Math.cos(rad) - dy * Math.sin(rad);
-                const ry = cy + dx * Math.sin(rad) + dy * Math.cos(rad);
-                hotspotDot.style.left = `${rx - 3}px`;
-                hotspotDot.style.top = `${ry - 3}px`;
-            }
+        const naturalW = previewImg.naturalWidth;
+        const naturalH = previewImg.naturalHeight;
+        const w = parseInt(wInput?.value) || 0;
+        const h = parseInt(hInput?.value) || 0;
+        const preview = computeCursorPreviewGeometry(
+            naturalW,
+            naturalH,
+            w,
+            h,
+            x,
+            y,
+            rot,
+            CURSOR_SIZE_MAX
+        );
+        if (wrapper) {
+            wrapper.style.width = `${preview.width}px`;
+            wrapper.style.height = `${preview.height}px`;
         }
+        previewImg.style.visibility = 'visible';
+        previewImg.style.position = 'absolute';
+        previewImg.style.left = `${preview.imageLeft}px`;
+        previewImg.style.top = `${preview.imageTop}px`;
+        previewImg.style.width = `${preview.imageWidth}px`;
+        previewImg.style.height = `${preview.imageHeight}px`;
+        previewImg.style.transformOrigin = 'center';
+        previewImg.style.transform = rot ? `rotate(${rot}deg)` : '';
+
+        if (hotspotDot) {
+            hotspotDot.style.display = 'block';
+            hotspotDot.style.left = `${preview.hotspotX - 3}px`;
+            hotspotDot.style.top = `${preview.hotspotY - 3}px`;
+        }
+        CursorConfigApp.#queueNameLabelPosition(section);
+    }
+
+    static #queueNameLabelPosition(section) {
+        if (section?.dataset?.tab !== 'default') return;
+        const previewContainer = section.querySelector('.ttb-preview-container');
+        const hiddenX = previewContainer?.querySelector('input[name="nameOffsetX"]');
+        const hiddenY = previewContainer?.querySelector('input[name="nameOffsetY"]');
+        const hiddenPos = previewContainer?.querySelector('input[name="namePosition"]');
+        if (!hiddenX || !hiddenY || !hiddenPos) return;
+        requestAnimationFrame(() => {
+            const x = Number.parseFloat(hiddenX.value);
+            const y = Number.parseFloat(hiddenY.value);
+            CursorConfigApp.#positionNameLabel(
+                section,
+                hiddenPos.value,
+                Number.isFinite(x) ? x : 0,
+                Number.isFinite(y) ? y : 1.2
+            );
+        });
     }
 
     static #validateCursorImageDimensions(path) {
@@ -215,6 +282,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
             previewImg.src = trimmedPath || '';
             previewImg.style.display = trimmedPath ? 'block' : 'none';
         }
+        CursorConfigApp.#updateStatePreview(section);
         CursorConfigApp.#validateCursorImageDimensions(trimmedPath);
     }
 
@@ -254,13 +322,13 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
         const previewImg = defaultSection?.querySelector('.ttb-preview-img');
         if (!previewWrapper || !dragLabel) return;
 
-        const imgW = previewImg?.offsetWidth || 64;
-        const imgH = previewImg?.offsetHeight || 64;
+        const imgW = previewWrapper.offsetWidth || previewImg?.offsetWidth || 64;
+        const imgH = previewWrapper.offsetHeight || previewImg?.offsetHeight || 64;
         const anchor = positionName === "custom"
             ? { anchorX: 0.5, anchorY: 0 }
             : (NAME_POSITION_PRESETS[positionName] || { anchorX: 0.5, anchorY: 0 });
-        const anchorX = (imgW / 2) + (offsetX * NAME_LABEL_PREVIEW_SCALE);
-        const anchorY = (imgH / 2) + (offsetY * NAME_LABEL_PREVIEW_SCALE);
+        const anchorX = (imgW / 2) + (offsetX * NAME_LABEL_OFFSET_SCALE);
+        const anchorY = (imgH / 2) + (offsetY * NAME_LABEL_OFFSET_SCALE);
         const px = anchorX - (dragLabel.offsetWidth * anchor.anchorX);
         const py = anchorY - (dragLabel.offsetHeight * anchor.anchorY);
         dragLabel.style.left = `${px}px`;
@@ -483,6 +551,10 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
             if (imageInput) {
                 imageInput.addEventListener('change', () => CursorConfigApp.#updateStateImage(section, imageInput.value));
             }
+            if (previewImg) {
+                previewImg.addEventListener('load', updatePreview);
+                previewImg.addEventListener('error', updatePreview);
+            }
             if (xSlider) xSlider.addEventListener('input', updatePreview);
             if (ySlider) ySlider.addEventListener('input', updatePreview);
             if (rotSlider) rotSlider.addEventListener('input', updatePreview);
@@ -524,10 +596,11 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
         const commitLabelPosition = (newX, newY) => {
             dragLabel.style.left = `${newX}px`;
             dragLabel.style.top = `${newY}px`;
-            const imgW = previewImg?.offsetWidth || 64;
-            const imgH = previewImg?.offsetHeight || 64;
-            const offsetX = ((newX + dragLabel.offsetWidth / 2) - imgW / 2) / NAME_LABEL_PREVIEW_SCALE;
-            const offsetY = (newY - imgH / 2) / NAME_LABEL_PREVIEW_SCALE;
+            const previewWrapper = defaultSection.querySelector('.ttb-preview-wrapper');
+            const imgW = previewWrapper?.offsetWidth || previewImg?.offsetWidth || 64;
+            const imgH = previewWrapper?.offsetHeight || previewImg?.offsetHeight || 64;
+            const offsetX = ((newX + dragLabel.offsetWidth / 2) - imgW / 2) / NAME_LABEL_OFFSET_SCALE;
+            const offsetY = (newY - imgH / 2) / NAME_LABEL_OFFSET_SCALE;
             hiddenX.value = Math.round(offsetX * 100) / 100;
             hiddenY.value = Math.round(offsetY * 100) / 100;
             hiddenPos.value = "custom";
@@ -587,8 +660,10 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
         };
         const wInput = defaultSection.querySelector('input[name="states.default.width"]');
         const hInput = defaultSection.querySelector('input[name="states.default.height"]');
+        const rotInput = defaultSection.querySelector('input[name="states.default.rotation"]');
         if (wInput) wInput.addEventListener('input', reposOnChange);
         if (hInput) hInput.addEventListener('input', reposOnChange);
+        if (rotInput) rotInput.addEventListener('input', reposOnChange);
         if (previewImg) previewImg.addEventListener('load', reposOnChange);
     }
 
@@ -643,7 +718,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
                 rotation: parseInt(data[`states.${key}.rotation`]) || 0,
                 width: parseInt(data[`states.${key}.width`]) || 0,
                 height: parseInt(data[`states.${key}.height`]) || 0,
-                enabled: key === "default" ? true : !!data[`states.${key}.enabled`]
+                enabled: key === "default" ? true : data[`states.${key}.enabled`] === true
             };
         });
 
@@ -651,7 +726,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
         const namePos = data.namePosition || "bottom-center";
         const nameOffsetX = parseNumber(data.nameOffsetX, 0);
         const nameOffsetY = parseNumber(data.nameOffsetY, 1.2);
-        const useCustomCursor = !!data.useCustomCursor;
+        const useCustomCursor = data.useCustomCursor === true;
         let saved;
         try {
             saved = await setUserCursorConfig(targetUser, {

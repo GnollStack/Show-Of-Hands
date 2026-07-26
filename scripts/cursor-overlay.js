@@ -4,8 +4,15 @@
  * Foundry's screen-space cursor layer.
  */
 
-import { MODULE_ID, CURSOR_POINTER_SIZE, CURSOR_FADE_TIMEOUT_MS, CURSOR_LERP_SPEED, debugLog } from './constants.js';
+import { MODULE_ID, CURSOR_POINTER_SIZE, CURSOR_FADE_TIMEOUT_MS, CURSOR_LERP_SPEED, NAME_LABEL_OFFSET_SCALE, debugLog } from './constants.js';
 import { computeOverlayNamePlacement, stepCursorLerp } from './cursor-geometry-core.js';
+import { canBroadcastVisibleCursor } from './foundry-permissions.js';
+import {
+    MAX_CURSOR_IMAGE_DIMENSION,
+    getCursorImageDataUrlDimensions,
+    isSocketMessageForCurrentView,
+    isValidCursorImageDimensions
+} from './socket-messages.js';
 
 let _container = null;
 const _cursors = new Map();
@@ -39,7 +46,7 @@ export function updateOverlaySetting(key, value) {
     }
     // Name placement depends on owner profile plus viewer settings, so each
     // entry gets recomputed lazily.
-    if (key === "namePosition" || key === "nameOffset" || key === "showNames") {
+    if (key === "namePosition" || key === "nameOffset" || key === "showNames" || key === "cursorSize") {
         for (const [, entry] of _cursors) entry.nameDirty = true;
     }
 }
@@ -95,10 +102,13 @@ export function updateRemoteCursor(userId, worldX, worldY, { source = "module" }
     if (userId === game.user.id) return;
 
     if (source === MOVEMENT_SOURCE_NATIVE) {
-        _pendingPositions.set(userId, { x: worldX, y: worldY });
         // Native movement by itself is not enough to show our fallback arrow.
-        // Wait for module cursor metadata or module movement.
-        if (!_cursors.has(userId) && !_pendingImages.has(userId)) return;
+        // Park it until module metadata or movement authorizes an entry. Once an
+        // entry exists, native updates apply directly and need no pending copy.
+        if (!_cursors.has(userId)) {
+            _pendingPositions.set(userId, { x: worldX, y: worldY, lastUpdate: Date.now() });
+            if (!_pendingImages.has(userId)) return;
+        }
     }
 
     const entry = _getOrCreateCursor(userId);
@@ -177,6 +187,7 @@ function _getOrCreateCursor(userId) {
 
     const color = user.color;
     const s = CURSOR_POINTER_SIZE;
+    const pendingPosition = _pendingPositions.get(userId) ?? null;
 
     // Fallback arrow shown when a peer has no custom cursor image.
     const g = new PIXI.Graphics();
@@ -221,25 +232,31 @@ function _getOrCreateCursor(userId) {
     idleText.position.set(0, 10);
     idleText.visible = false;
 
+    // Scale only cursor artwork. Names and idle identity remain readable at a
+    // stable screen-space size even when large source art is reduced.
+    const artContainer = new PIXI.Container();
+    artContainer.addChild(g);
+
     const cursorContainer = new PIXI.Container();
-    cursorContainer.addChild(g, text, idleDot, idleText);
+    cursorContainer.addChild(artContainer, text, idleDot, idleText);
     cursorContainer.eventMode = "none";
     _container.addChild(cursorContainer);
 
     const entry = {
         container: cursorContainer,
+        artContainer,
         arrow: g,
         text,
         idleDot,
         idleText,
         sprite: null,
         playerName: user.name,
-        currentX: 0,
-        currentY: 0,
-        targetX: 0,
-        targetY: 0,
-        initialized: false,
-        lastUpdate: Date.now(),
+        currentX: pendingPosition?.x ?? 0,
+        currentY: pendingPosition?.y ?? 0,
+        targetX: pendingPosition?.x ?? 0,
+        targetY: pendingPosition?.y ?? 0,
+        initialized: !!pendingPosition,
+        lastUpdate: pendingPosition?.lastUpdate ?? Date.now(),
         baseSize: CURSOR_POINTER_SIZE,
         namePosition: null,
         nameOffset: null,
@@ -250,9 +267,13 @@ function _getOrCreateCursor(userId) {
         imageHeight: 0,
         hotspotX: 0,
         hotspotY: 0,
-        nativeMovementSeen: false
+        nativeMovementSeen: !!pendingPosition
     };
     _cursors.set(userId, entry);
+    if (pendingPosition) {
+        _pendingPositions.delete(userId);
+        _projectCursorPosition(entry);
+    }
     debugLog("sharing", `Created cursor for ${user.name}`);
 
     // Apply any custom image that arrived before this PIXI entry existed.
@@ -297,10 +318,35 @@ function _applyCursorImage(entry, imageDataUrl, hotspotX, hotspotY) {
         return;
     }
 
+    const encodedDimensions = getCursorImageDataUrlDimensions(imageDataUrl);
+    if (!encodedDimensions || !isValidCursorImageDimensions(encodedDimensions.width, encodedDimensions.height)) {
+        console.warn(`${MODULE_ID} | Rejected malformed or out-of-bounds shared cursor image header (max ${MAX_CURSOR_IMAGE_DIMENSION}px)`);
+        entry.imageDataUrl = null;
+        entry.arrow.visible = true;
+        entry.baseSize = CURSOR_POINTER_SIZE;
+        entry.imageWidth = 0;
+        entry.imageHeight = 0;
+        entry.nameDirty = true;
+        return;
+    }
+
     const img = new Image();
     img.onload = () => {
         if (!entry.container || entry.container.destroyed) return;
         if (entry.imageLoadId !== imageLoadId) return;
+
+        const width = Number(img.naturalWidth || img.width);
+        const height = Number(img.naturalHeight || img.height);
+        if (!isValidCursorImageDimensions(width, height)) {
+            console.warn(`${MODULE_ID} | Rejected shared cursor image outside 1-${MAX_CURSOR_IMAGE_DIMENSION}px bounds`);
+            entry.imageDataUrl = null;
+            entry.arrow.visible = true;
+            entry.baseSize = CURSOR_POINTER_SIZE;
+            entry.imageWidth = 0;
+            entry.imageHeight = 0;
+            entry.nameDirty = true;
+            return;
+        }
 
         const texture = PIXI.Texture.from(img);
         const sprite = new PIXI.Sprite(texture);
@@ -308,24 +354,25 @@ function _applyCursorImage(entry, imageDataUrl, hotspotX, hotspotY) {
         // Align the sprite hotspot with the container origin; movement updates
         // project that origin onto the canvas cursor position.
         sprite.anchor.set(
-            hotspotX / img.width,
-            hotspotY / img.height
+            Math.max(0, Math.min(width - 1, hotspotX)) / width,
+            Math.max(0, Math.min(height - 1, hotspotY)) / height
         );
 
         entry.sprite = sprite;
         entry.arrow.visible = false;
-        entry.imageWidth = img.width;
-        entry.imageHeight = img.height;
-        entry.baseSize = Math.max(img.width, img.height) || CURSOR_POINTER_SIZE;
-        entry.container.addChildAt(sprite, 0);
+        entry.imageWidth = width;
+        entry.imageHeight = height;
+        entry.baseSize = Math.max(width, height) || CURSOR_POINTER_SIZE;
+        entry.artContainer.addChildAt(sprite, 0);
         entry.nameDirty = true;
 
-        debugLog("sharing", `Applied custom cursor image for user, size=${img.width}x${img.height}`);
+        debugLog("sharing", `Applied custom cursor image for user, size=${width}x${height}`);
     };
     img.onerror = () => {
         if (!entry.container || entry.container.destroyed) return;
         if (entry.imageLoadId !== imageLoadId) return;
         console.warn(`${MODULE_ID} | Failed to load shared cursor image`);
+        entry.imageDataUrl = null;
         entry.arrow.visible = true;
         entry.baseSize = CURSOR_POINTER_SIZE;
         entry.imageWidth = 0;
@@ -507,8 +554,16 @@ function _tick() {
         _updateFoundryCursors(showFoundryNames, showFoundryDots, foundryCursorChildren);
     }
 
-    for (const [, entry] of _cursors) {
+    for (const [userId, entry] of _cursors) {
         if (!entry.container || entry.container.destroyed) continue;
+        const user = game.users?.get?.(userId);
+        const view = { sceneId: user?.viewedScene, levelId: user?.viewedLevel };
+        if (!user || !canBroadcastVisibleCursor(user) || !isSocketMessageForCurrentView(view, user, canvas)) {
+            removeRemoteCursor(userId);
+            continue;
+        }
+        const baseSize = entry.baseSize || CURSOR_POINTER_SIZE;
+        const artScale = cursorSize / baseSize;
 
         // Recompute the module label only after image/settings changes;
         // visibility still updates every frame.
@@ -518,10 +573,13 @@ function _tick() {
                 const placement = computeOverlayNamePlacement({
                     namePosition: entry.namePosition || namePosition,
                     nameOffset: entry.nameOffset || nameOffset,
-                    scale: CURSOR_POINTER_SIZE,
+                    // Name offsets are owner-authored in the same fixed
+                    // coordinate system used by Cursor Settings. Cursor Size
+                    // scales the art and center shift, not the saved offset.
+                    scale: NAME_LABEL_OFFSET_SCALE,
                     hasSprite,
-                    spriteWidth: hasSprite ? (entry.imageWidth || entry.sprite.texture?.width || 0) : 0,
-                    spriteHeight: hasSprite ? (entry.imageHeight || entry.sprite.texture?.height || 0) : 0,
+                    spriteWidth: hasSprite ? (entry.imageWidth || entry.sprite.texture?.width || 0) * artScale : 0,
+                    spriteHeight: hasSprite ? (entry.imageHeight || entry.sprite.texture?.height || 0) * artScale : 0,
                     spriteAnchorX: hasSprite ? entry.sprite.anchor.x : 0,
                     spriteAnchorY: hasSprite ? entry.sprite.anchor.y : 0
                 });
@@ -548,8 +606,8 @@ function _tick() {
 
         // The parent is Foundry's unbound screen-space cursor container, so
         // scaling is already viewport-stable and must not be divided by zoom.
-        const baseSize = entry.baseSize || CURSOR_POINTER_SIZE;
-        entry.container.scale.set(cursorSize / baseSize);
+        entry.container.scale.set(1);
+        entry.artContainer.scale.set(artScale);
 
         // Fade custom cursor art and optional idle identity separately.
         const elapsed = now - entry.lastUpdate;
@@ -593,6 +651,7 @@ function _tick() {
             }
         } else {
             // Active cursor: full opacity, no idle identity, reset per-element alpha.
+            entry.container.visible = true;
             entry.container.alpha = cursorOpacity;
             if (entry.sprite) entry.sprite.alpha = 1;
             entry.arrow.alpha = 1;

@@ -6,6 +6,7 @@
 
 import { MODULE_ID, MODULE_TITLE } from './constants.js';
 import { getHiddenSharedCursorUserIds, MARQUEE_LEVEL_FILTERS, MARQUEE_TOKEN_FILTERS } from './settings.js';
+import { parseAdvancedSettingsForm } from './advanced-settings-core.js';
 
 function choiceEntries(choices, selected) {
     return Object.entries(choices).map(([value, label]) => ({
@@ -100,21 +101,18 @@ export class AdvancedSettingsApp extends foundry.applications.api.HandlebarsAppl
     }
 
     static async #onSubmit(event, form, formData) {
-        const data = formData ?? new foundry.applications.ux.FormDataExtended(form);
-        const opacity = Number.parseFloat(data.get("sharedCursorOpacity"));
-        const hiddenUsers = {};
+        const formObject = formData?.object ?? new foundry.applications.ux.FormDataExtended(form).object;
+        const otherUserIds = game.users
+            .filter(user => user.id !== game.user.id)
+            .map(user => user.id);
+        const values = parseAdvancedSettingsForm(formObject, otherUserIds);
 
-        for (const user of game.users) {
-            if (user.id === game.user.id) continue;
-            if (data.get(`hiddenUsers.${user.id}`)) hiddenUsers[user.id] = true;
-        }
-
-        await game.settings.set(MODULE_ID, "shared-cursor-opacity", Number.isFinite(opacity) ? opacity : 1);
-        await game.settings.set(MODULE_ID, "disable-cursor-fade", !!data.get("disableCursorFade"));
-        await game.settings.set(MODULE_ID, "idle-identity-fade", !!data.get("idleIdentityFade"));
-        await game.settings.set(MODULE_ID, "marquee-token-filter", data.get("marqueeTokenFilter") || "all");
-        await game.settings.set(MODULE_ID, "marquee-level-filter", data.get("marqueeLevelFilter") || "all");
-        await game.settings.set(MODULE_ID, "hidden-shared-cursor-users", hiddenUsers);
+        await game.settings.set(MODULE_ID, "shared-cursor-opacity", values.sharedCursorOpacity);
+        await game.settings.set(MODULE_ID, "disable-cursor-fade", values.disableCursorFade);
+        await game.settings.set(MODULE_ID, "idle-identity-fade", values.idleIdentityFade);
+        await game.settings.set(MODULE_ID, "marquee-token-filter", values.marqueeTokenFilter);
+        await game.settings.set(MODULE_ID, "marquee-level-filter", values.marqueeLevelFilter);
+        await game.settings.set(MODULE_ID, "hidden-shared-cursor-users", values.hiddenUsers);
 
         ui.notifications.info(`${MODULE_TITLE} advanced settings saved.`);
     }

@@ -1,7 +1,7 @@
-import { CURSOR_SIZE_MAX, CURSOR_STATE_KEYS } from './constants.js';
+import { CURSOR_SIZE_MAX, CURSOR_SOURCE_HOTSPOT_MAX, CURSOR_STATE_KEYS } from './constants.js';
 import { SETTING_CHOICES, SETTING_KEYS, SETTING_RANGES } from './settings.js';
 import { normalizeRect, rectIntersectsBounds, computeMarqueeTargetUpdate } from './marquee-core.js';
-import { computeResizeOutput, computeRotationOutput, computeOverlayNamePlacement, stepCursorLerp } from './cursor-geometry-core.js';
+import { computeCursorDisplaySize, computeCursorPreviewGeometry, computeResizeOutput, computeRotationOutput, computeOverlayNamePlacement, stepCursorLerp } from './cursor-geometry-core.js';
 
 export const DIAGNOSTICS_API_VERSION = 1;
 
@@ -95,7 +95,7 @@ export const MUTATING_DIAGNOSTIC_ACTION_NAMES = Object.freeze([
 export const DIAGNOSTIC_SETTING_KEYS = SETTING_KEYS;
 
 const NAME_POSITIONS = Object.freeze(["bottom-center", "bottom-right", "top-center", "right", "custom"]);
-const HOTSPOT_MAX = CURSOR_SIZE_MAX;
+const HOTSPOT_MAX = CURSOR_SOURCE_HOTSPOT_MAX;
 
 function isPlainObject(value) {
     return !!value && typeof value === "object" && !Array.isArray(value);
@@ -595,6 +595,10 @@ export function runCoreSelfChecks() {
     const resize = computeResizeOutput(256, 128, 128, 64, CURSOR_SIZE_MAX);
     const resizeOk = resize.width === 128 && resize.height === 64 &&
         resize.hotspotX === 64 && resize.hotspotY === 32 && resize.scale === 0.5;
+    const narrowByHeight = computeCursorDisplaySize(1, 128, 0, 1);
+    const shortByWidth = computeCursorDisplaySize(128, 1, 1, 0);
+    const minimumDimensionOk = narrowByHeight.width === 1 && narrowByHeight.height === 1 &&
+        shortByWidth.width === 1 && shortByWidth.height === 1;
 
     // Rotation keeps 0 degrees stable and clamps oversized rotated boxes.
     const rot0 = computeRotationOutput(100, 100, 10, 20, 0, CURSOR_SIZE_MAX);
@@ -602,6 +606,13 @@ export function runCoreSelfChecks() {
         rot0.hotspotX === 10 && rot0.hotspotY === 20 && rot0.scale === 1;
     const rotBig = computeRotationOutput(100, 100, 0, 0, 45, CURSOR_SIZE_MAX);
     const rotClampOk = rotBig.scale < 1 && rotBig.width <= CURSOR_SIZE_MAX && rotBig.height <= CURSOR_SIZE_MAX;
+
+    // The configuration preview must use the same resized/rotated output box
+    // and source-coordinate hotspot transform as the runtime raster.
+    const preview = computeCursorPreviewGeometry(100, 50, 40, 20, 10, 5, 90, CURSOR_SIZE_MAX);
+    const previewOk = preview.width === 20 && preview.height === 40 &&
+        preview.hotspotX === 18 && preview.hotspotY === 4 &&
+        approx(preview.imageLeft, -10) && approx(preview.imageTop, 10);
 
     // Overlay name placement accepts known presets and rejects unknown ones.
     const placePreset = computeOverlayNamePlacement({ namePosition: "bottom-center", scale: 16, hasSprite: false });
@@ -618,8 +629,10 @@ export function runCoreSelfChecks() {
         makeSmokeCheck("marquee rectangle intersection (strict edges)", intersectionOk),
         makeSmokeCheck("marquee target diff (replace/additive/unchanged)", targetDiffOk),
         makeSmokeCheck("cursor resize scales to the size cap", resizeOk, { resize }),
+        makeSmokeCheck("cursor aspect resize keeps both dimensions nonzero", minimumDimensionOk, { narrowByHeight, shortByWidth }),
         makeSmokeCheck("cursor rotation at 0 degrees is identity", rotIdentityOk),
         makeSmokeCheck("cursor rotation clamps oversized boxes", rotClampOk, { rotBig }),
+        makeSmokeCheck("cursor preview matches processed resize/rotation geometry", previewOk, { preview }),
         makeSmokeCheck("overlay name placement resolves preset and unknown", placementOk),
         makeSmokeCheck("cursor movement lerp snaps and steps", lerpOk)
     ];

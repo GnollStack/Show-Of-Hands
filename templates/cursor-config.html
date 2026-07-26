@@ -133,16 +133,16 @@
                 <label>
                     Hotspot X: <span class="ttb-hotspot-x-value">{{hotspotX}}</span>px
                 </label>
-                <input type="range" name="states.{{key}}.hotspotX" min="0" max="128" step="1" value="{{hotspotX}}">
-                <p class="ttb-notes">Horizontal position of the click point (left to right)</p>
+                <input type="range" name="states.{{key}}.hotspotX" min="0" max="{{hotspotMax}}" step="1" value="{{hotspotX}}">
+                <p class="ttb-notes">Horizontal source-image pixel for the click point (left to right)</p>
             </div>
 
             <div class="ttb-form-group">
                 <label>
                     Hotspot Y: <span class="ttb-hotspot-y-value">{{hotspotY}}</span>px
                 </label>
-                <input type="range" name="states.{{key}}.hotspotY" min="0" max="128" step="1" value="{{hotspotY}}">
-                <p class="ttb-notes">Vertical position of the click point (top to bottom)</p>
+                <input type="range" name="states.{{key}}.hotspotY" min="0" max="{{hotspotMax}}" step="1" value="{{hotspotY}}">
+                <p class="ttb-notes">Vertical source-image pixel for the click point (top to bottom)</p>
             </div>
 
             <div class="ttb-form-group">

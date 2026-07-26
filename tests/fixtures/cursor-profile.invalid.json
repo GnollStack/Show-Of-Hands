@@ -10,7 +10,7 @@
     "default": {
       "image": "",
       "hotspotX": -1,
-      "hotspotY": 129,
+      "hotspotY": 65536,
       "rotation": 400,
       "width": 512,
       "height": -4,

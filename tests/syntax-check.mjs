@@ -2,7 +2,7 @@ import { readdir } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-const roots = ['scripts', 'tests'];
+const roots = ['scripts', 'tests', 'tools'];
 const extensions = new Set(['.js', '.mjs']);
 const files = [];
 
@@ -27,6 +27,16 @@ for (const file of files.sort()) {
     if (result.status !== 0) {
         failures.push({
             file,
+            error: result.error ? {
+                name: result.error.name,
+                message: result.error.message,
+                code: result.error.code,
+                syscall: result.error.syscall,
+                path: result.error.path,
+                spawnargs: result.error.spawnargs
+            } : null,
+            status: result.status,
+            signal: result.signal,
             stdout: (result.stdout ?? '').trim(),
             stderr: (result.stderr ?? '').trim()
         });

@@ -15,10 +15,9 @@ export function performSingleTarget(isShift) {
         const clearOnEmpty = game.settings.get(MODULE_ID, "clear-targets-on-empty-click");
         if (clearOnEmpty && !isShift && game.user.targets.size > 0) {
             debugLog("marquee", `Clearing ${game.user.targets.size} targets (empty-space click)`);
-            // Snapshot to an array; setTarget(false) mutates game.user.targets.
-            for (const t of [...game.user.targets]) {
-                t.setTarget(false, { user: game.user, releaseOthers: false });
-            }
+            // Replace once so Foundry emits a single target update instead of
+            // broadcasting the shrinking full set once per token.
+            canvas.tokens.setTargets([], { mode: "replace" });
         }
         return;
     }

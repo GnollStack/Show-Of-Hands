@@ -37,6 +37,7 @@ import {
 import { getShowCursorPermissionState } from './foundry-permissions.js';
 import { getMarqueeLevelFilterStatus } from './scene-levels.js';
 import { getCursorPrivacyBroadcastDebugState } from './privacy-broadcast.js';
+import { authenticateSocketSender } from './socket-messages.js';
 
 const DEFAULT_ASSET_LOAD_TIMEOUT_MS = 2000;
 const DEFAULT_CLIENT_DIAGNOSTICS_TIMEOUT_MS = 1000;
@@ -626,11 +627,14 @@ function installDiagnosticsSocketResponder({ getDebugState } = {}) {
     if (diagnosticsSocketResponderInstalled || !game.socket?.on || !game.socket?.emit) return;
     diagnosticsSocketResponderInstalled = true;
 
-    game.socket.on(SOCKET_EVENT, data => {
+    game.socket.on(SOCKET_EVENT, (data, senderId) => {
         if (data?.type !== CLIENT_DIAGNOSTICS_REQUEST) return;
-        if (!data.requestId || data.requesterId === game.user?.id) return;
+        if (!data.requestId) return;
 
-        const requester = game.users?.get?.(data.requesterId);
+        const authenticated = authenticateSocketSender(data.requesterId, senderId, game.users);
+        if (!authenticated.valid || authenticated.user.id === game.user?.id) return;
+
+        const requester = authenticated.user;
         const gate = getDiagnosticsGate();
         if (!requester?.isGM || !gate.debugLogging || !gate.enableMcpDiagnostics) return;
 
@@ -639,7 +643,7 @@ function installDiagnosticsSocketResponder({ getDebugState } = {}) {
             requestId: data.requestId,
             responderId: game.user?.id ?? null,
             snapshot: getClientDiagnosticsSnapshot({ getDebugState })
-        });
+        }, { recipients: [requester.id] });
     });
 }
 
@@ -665,10 +669,12 @@ async function collectClientDiagnosticsForDiagnostics(args = {}, { getDebugState
     }
 
     await new Promise(resolve => {
-        const onResponse = data => {
+        const onResponse = (data, senderId) => {
             if (data?.type !== CLIENT_DIAGNOSTICS_RESPONSE) return;
             if (data.requestId !== requestId) return;
-            responses.set(data.responderId ?? `unknown-${responses.size}`, data.snapshot ?? {});
+            const authenticated = authenticateSocketSender(data.responderId, senderId, game.users);
+            if (!authenticated.valid) return;
+            responses.set(authenticated.user.id, data.snapshot ?? {});
         };
 
         const timer = setTimeout(() => {

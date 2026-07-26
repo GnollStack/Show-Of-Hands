@@ -17,7 +17,45 @@ export const CURSOR_SHARE_THROTTLE_MS = 33;
 export const CURSOR_FADE_TIMEOUT_MS = 5000;
 export const CURSOR_POINTER_SIZE = 16;
 export const CURSOR_SIZE_MAX = 128;
+// Hotspots are stored in source-image pixels, not in the final browser cursor
+// raster. Keep a generous safety ceiling so large source art can reach every
+// edge before it is reduced to CURSOR_SIZE_MAX at runtime.
+export const CURSOR_SOURCE_HOTSPOT_MAX = 65_535;
 export const CURSOR_LERP_SPEED = 0.1;
+
+// Controls that use Foundry's pointer cursor variables. State detection uses
+// the same selector so the customizable held/pressed state cannot drift from
+// the controls styled as clickable.
+export const CURSOR_CLICKABLE_SELECTOR = Object.freeze([
+    "a",
+    "button",
+    "select",
+    "summary",
+    "input:is([type='button'], [type='submit'], [type='reset'], [type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file'])",
+    "label[for]",
+    "[role='button']",
+    "[data-action]",
+    "[data-control]",
+    "[data-tab]",
+    ".control-tool",
+    ".scene-control",
+    ".header-button",
+    ".window-header .header-control",
+    ".window-app .tab",
+    ".window-app .directory-item",
+    ".window-app .item-control",
+    ".window-app .effect-control",
+    ".window-app .rollable"
+]).join(", ");
+
+// Elements whose native cursor should progress from grab to grabbing. Keep
+// this shared with held-state detection so Pressed/Held never masks dragging.
+export const CURSOR_DRAGGABLE_SELECTOR = Object.freeze([
+    ".window-app li.item",
+    ".window-app .item-name",
+    "[draggable='true']",
+    ".draggable"
+]).join(", ");
 
 export const SOCKET_MESSAGE_TYPES = Object.freeze({
     CURSOR_MOVE: "cursorMove",
@@ -56,14 +94,14 @@ export const CURSOR_STATE_DEFINITIONS = Object.freeze([
     },
     {
         key: "click",
-        tabLabel: "Click",
-        label: "Click / Press",
-        description: "Used while holding the mouse on clickable controls and pointer-mode canvas interactions.",
-        nativeDefault: "Pressed clickable cursor",
+        tabLabel: "Pressed",
+        label: "Pressed / Held",
+        description: "Used after pressing the primary mouse button and while holding it down. Foundry applies it to default and pointer interactions; drag/grabbing keeps priority.",
+        nativeDefault: "Held default or clickable cursor",
         nativeCursor: "pointer",
         demoCursor: "pointer",
         demoActiveCursor: "pointer",
-        demoHint: "Press and hold this box to preview the native pressed clickable cursor.",
+        demoHint: "Press and hold this box to preview the native held-click cursor.",
         enableToggle: true,
         disabledFallbackKey: "hover"
     },
@@ -155,9 +193,10 @@ export const CURSOR_STATE_DETAILS = Object.freeze(
     Object.fromEntries(CURSOR_STATE_DEFINITIONS.map(state => [state.key, state]))
 );
 
-// Pixels per stored offset unit when projecting the overlay name label onto the
-// config preview image. Offsets are persisted as image half-size multipliers.
-export const NAME_LABEL_PREVIEW_SCALE = 16;
+// Fixed screen pixels per stored overlay-name offset unit. Both the config
+// preview and live PIXI overlay must use this exact scale so owner placement is
+// not changed by a viewer's Shared Cursor Size setting.
+export const NAME_LABEL_OFFSET_SCALE = 16;
 
 export const NAME_POSITION_PRESETS = {
     "bottom-center": { anchorX: 0.5, anchorY: 0, offsetX: 0, offsetY: 1.2 },
@@ -178,7 +217,7 @@ export const DEBUG_MODES = {
     off: "Off",
     all: "All",
     cursor: "Cursor CSS & Settings",
-    states: "State Detection (hover/targeting/panning)",
+    states: "State Detection (hover/pressed/targeting/panning)",
     config: "Config UI & Save",
     sharing: "Cursor Sharing",
     marquee: "Marquee Box Select"

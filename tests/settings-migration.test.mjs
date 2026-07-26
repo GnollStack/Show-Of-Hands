@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { DEFAULT_HOTSPOT, MODULE_ID } from '../scripts/constants.js';
+import { CURSOR_SOURCE_HOTSPOT_MAX, DEFAULT_HOTSPOT, MODULE_ID } from '../scripts/constants.js';
 import {
     SETTING_DEFINITIONS,
     USER_CURSOR_CONFIG_FLAG,
+    getCursorSharingMode,
     getSettingDefault,
     getUserCursorConfig,
     migrateLegacyUserCursorConfig,
-    migrateSettings
+    migrateSettings,
+    migrateWorldSettings,
+    normalizeUserCursorConfig
 } from '../scripts/settings.js';
 
 function clone(value) {
@@ -37,7 +40,12 @@ function mergePlainObject(base, override) {
     return result;
 }
 
-function makeEnvironment(initialSettings = {}, { legacySettings = {}, mergeThrows = false } = {}) {
+function makeEnvironment(initialSettings = {}, {
+    legacySettings = {},
+    mergeThrows = false,
+    rejectWorldBeforeReady = false,
+    failSetOnceFor = null
+} = {}) {
     const defaults = new Map(SETTING_DEFINITIONS.map(definition => [
         definition.key,
         getSettingDefault(definition)
@@ -51,8 +59,12 @@ function makeEnvironment(initialSettings = {}, { legacySettings = {}, mergeThrow
     seedSettings(MODULE_ID, initialSettings);
     seedSettings('target-the-beastie', legacySettings);
     const writes = [];
+    let didFailConfiguredSet = false;
+    const scopes = new Map(SETTING_DEFINITIONS.map(definition => [definition.key, definition.scope ?? 'client']));
 
     globalThis.game = {
+        ready: !rejectWorldBeforeReady,
+        user: { isGM: true },
         settings: {
             storage: {
                 get(scope) {
@@ -73,6 +85,13 @@ function makeEnvironment(initialSettings = {}, { legacySettings = {}, mergeThrow
             },
             async set(moduleId, key, value) {
                 assert.equal(moduleId, MODULE_ID);
+                if (key === failSetOnceFor && !didFailConfiguredSet) {
+                    didFailConfiguredSet = true;
+                    throw new Error(`transient set failure: ${key}`);
+                }
+                if (rejectWorldBeforeReady && scopes.get(key) === 'world' && !globalThis.game.ready) {
+                    throw new Error('world settings require ready');
+                }
                 writes.push({ key, value: clone(value) });
                 store.set(`${moduleId}.${key}`, clone(value));
                 return value;
@@ -98,6 +117,9 @@ function makeEnvironment(initialSettings = {}, { legacySettings = {}, mergeThrow
         },
         getLegacy(key) {
             return store.get(`target-the-beastie.${key}`);
+        },
+        setReady(value) {
+            globalThis.game.ready = value;
         },
         writes
     };
@@ -127,6 +149,98 @@ test('fresh install without stored legacy keys does not write migration settings
 
         assert.equal(env.has('settings-version'), false);
         assert.deepEqual(env.writes, []);
+    });
+});
+
+test('cursor profile normalization preserves large source hotspots beyond the output raster cap', async () => {
+    await withEnvironment({}, async () => {
+        const config = normalizeUserCursorConfig({
+            cursorStates: {
+                default: {
+                    hotspotX: 511,
+                    hotspotY: CURSOR_SOURCE_HOTSPOT_MAX + 100
+                }
+            }
+        });
+
+        assert.equal(config.cursorStates.default.hotspotX, 511);
+        assert.equal(config.cursorStates.default.hotspotY, CURSOR_SOURCE_HOTSPOT_MAX);
+    });
+});
+
+test('effective sharing mode preserves legacy privacy before migration completes', async () => {
+    await withEnvironment({}, async () => {
+        assert.equal(getCursorSharingMode(), 'private');
+    }, {
+        legacySettings: {
+            'enable-cursor-sharing': true,
+            'hide-my-cursor-from-others': true
+        }
+    });
+});
+
+test('effective sharing mode reads a legacy compact mode before migration', async () => {
+    await withEnvironment({}, async () => {
+        assert.equal(getCursorSharingMode(), 'receive');
+    }, {
+        legacySettings: {
+            'cursor-sharing-mode': 'receive'
+        }
+    });
+});
+
+test('current compact sharing mode takes precedence over legacy values', async () => {
+    await withEnvironment({
+        'cursor-sharing-mode': 'share'
+    }, async () => {
+        assert.equal(getCursorSharingMode(), 'share');
+    }, {
+        legacySettings: {
+            'cursor-sharing-mode': 'private'
+        }
+    });
+});
+
+test('current legacy privacy boolean takes precedence over a stale legacy compact mode', async () => {
+    await withEnvironment({
+        'hide-my-cursor-from-others': true
+    }, async () => {
+        assert.equal(getCursorSharingMode(), 'private');
+    }, {
+        legacySettings: {
+            'cursor-sharing-mode': 'share'
+        }
+    });
+});
+
+test('namespace migration materializes current legacy privacy before copying a compact mode', async () => {
+    await withEnvironment({
+        'hide-my-cursor-from-others': true
+    }, async (env) => {
+        await migrateSettings();
+        assert.equal(env.get('cursor-sharing-mode'), 'private');
+        assert.equal(getCursorSharingMode(), 'private');
+    }, {
+        legacySettings: {
+            'settings-version': 5,
+            'cursor-sharing-mode': 'share'
+        }
+    });
+});
+
+test('early client migration defers legacy world settings until Foundry ready', async () => {
+    await withEnvironment({}, async (env) => {
+        await migrateSettings({ includeWorld: false });
+        assert.equal(env.has('enableMcpDiagnostics'), false);
+
+        env.setReady(true);
+        await migrateWorldSettings();
+        assert.equal(env.get('enableMcpDiagnostics'), true);
+    }, {
+        legacySettings: {
+            'enableMcpDiagnostics': true
+        },
+        rejectWorldBeforeReady: true
     });
 });
 
@@ -164,14 +278,55 @@ test('legacy user cursor flag survives inactive old package scope', async () => 
         };
 
         const config = getUserCursorConfig(user);
-        assert.equal(config.cursorStates.default.image, 'modules/show-of-hands/custom/default.png');
+        assert.equal(config.cursorStates.default.image, 'modules/target-the-beastie/custom/default.png');
 
         const result = await migrateLegacyUserCursorConfig(user);
         assert.equal(result.migrated, true);
         assert.equal(writes.length, 1);
         assert.equal(writes[0].scope, MODULE_ID);
         assert.equal(writes[0].key, USER_CURSOR_CONFIG_FLAG);
-        assert.equal(writes[0].value.cursorStates.default.image, 'modules/show-of-hands/custom/default.png');
+        assert.equal(writes[0].value.cursorStates.default.image, 'modules/target-the-beastie/custom/default.png');
+    });
+});
+
+test('stored client cursor profile migrates when neither user flag exists', async () => {
+    await withEnvironment({
+        'cursor-states': {
+            default: {
+                image: 'custom/local-pointer.png',
+                hotspotX: 6,
+                hotspotY: 7,
+                rotation: 15,
+                width: 40,
+                height: 20,
+                enabled: true
+            }
+        },
+        'use-custom-cursor': false,
+        'cursor-name-position': 'custom',
+        'cursor-name-offset': { x: 2.5, y: -1 }
+    }, async () => {
+        const writes = [];
+        const user = {
+            flags: {},
+            getFlag() { return undefined; },
+            async setFlag(scope, key, value) {
+                writes.push({ scope, key, value: clone(value) });
+                return value;
+            }
+        };
+
+        const result = await migrateLegacyUserCursorConfig(user);
+        assert.equal(result.migrated, true);
+        assert.equal(result.source, 'client-settings');
+        assert.equal(writes.length, 1);
+        assert.equal(writes[0].scope, MODULE_ID);
+        assert.equal(writes[0].key, USER_CURSOR_CONFIG_FLAG);
+        assert.equal(writes[0].value.useCustomCursor, false);
+        assert.equal(writes[0].value.cursorStates.default.image, 'custom/local-pointer.png');
+        assert.equal(writes[0].value.cursorStates.default.hotspotX, 6);
+        assert.equal(writes[0].value.namePosition, 'custom');
+        assert.deepEqual(writes[0].value.nameOffset, { x: 2.5, y: -1 });
     });
 });
 
@@ -206,7 +361,7 @@ test('legacy module namespace settings are copied before version migration', asy
         assert.equal(env.get('cursor-states').default.image, '');
         assert.equal(env.get('cursor-states').default.hotspotX, DEFAULT_HOTSPOT.x);
         assert.equal(env.get('cursor-states').default.hotspotY, DEFAULT_HOTSPOT.y);
-        assert.equal(env.get('cursor-states').hover.image, 'modules/show-of-hands/custom/cursor.png');
+        assert.equal(env.get('cursor-states').hover.image, 'modules/target-the-beastie/custom/cursor.png');
         assert.equal(env.getLegacy('settings-version'), 4);
     }, {
         legacySettings: {
@@ -234,6 +389,24 @@ test('legacy module namespace settings are copied before version migration', asy
                 }
             }
         }
+    });
+});
+
+test('a transient legacy namespace copy failure rejects and succeeds on retry', async () => {
+    await withEnvironment({}, async (env) => {
+        await assert.rejects(
+            migrateSettings({ includeWorld: false }),
+            /namespace settings could not be migrated/
+        );
+        assert.equal(env.has('middle-mouse-actions'), false);
+
+        await migrateSettings({ includeWorld: false });
+        assert.equal(env.get('middle-mouse-actions'), 'marquee');
+    }, {
+        legacySettings: {
+            'middle-mouse-actions': 'marquee'
+        },
+        failSetOnceFor: 'middle-mouse-actions'
     });
 });
 
@@ -267,7 +440,7 @@ test('v5 migration scrubs removed bundled cursor paths from current cursor state
         assert.equal(env.get('cursor-states').default.image, '');
         assert.equal(env.get('cursor-states').default.hotspotX, DEFAULT_HOTSPOT.x);
         assert.equal(env.get('cursor-states').default.hotspotY, DEFAULT_HOTSPOT.y);
-        assert.equal(env.get('cursor-states').hover.image, 'modules/show-of-hands/custom/hover.png');
+        assert.equal(env.get('cursor-states').hover.image, 'modules/target-the-beastie/custom/hover.png');
     });
 });
 
@@ -281,7 +454,7 @@ test('mid-chain migration failure persists completed earlier version and stops',
         'enable-cursor-sharing': true,
         'hide-my-cursor-from-others': false
     }, async (env) => {
-        await migrateSettings();
+        await assert.rejects(migrateSettings(), /merge failed/);
 
         assert.equal(env.get('settings-version'), 2);
         assert.equal(env.get('use-custom-cursor'), false);

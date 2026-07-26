@@ -98,7 +98,7 @@
 | --- | --- |
 | Default | Normal cursor on the canvas and UI. |
 | Hover | Mouse is over a token or clickable Foundry UI control. |
-| Click | Mouse button is held on clickable controls. |
+| Pressed / Held | Primary mouse button is down during a default or clickable interaction, after press and before release/cancellation. Dragging keeps its separate cursor. |
 | Hover To Drag | Mouse is over draggable headers, rows, or drag sources. |
 | Dragging | A draggable UI element is actively being dragged. |
 | Resize | Mouse is over a window resize handle. |
@@ -106,7 +106,7 @@
 | Targeting | Targeting tool is active. |
 | Panning | Right-click dragging to pan. |
 
-Per-state customization includes FilePicker-backed image paths, click hotspot position, rotation from `0-359` degrees, width and height controls, aspect-ratio locking, state enablement, live preview, native fallback previews, and profile copy/reset controls. Show of Hands ships without cursor artwork; leave an image path empty to use Foundry's native cursor for that state.
+Per-state customization includes FilePicker-backed image paths, click hotspot position, rotation from `0-359` degrees, width and height controls, aspect-ratio locking, state enablement, live preview, native fallback previews, and profile copy/reset controls. Hotspot sliders use the loaded source image's pixel dimensions, then scale that point with the image into the browser's 128px cursor limit. Show of Hands ships without cursor artwork; leave an image path empty to use Foundry's native cursor for that state.
 
 <img width="947" height="896" alt="image" src="https://github.com/user-attachments/assets/b6577dfe-5a2f-4dcf-a65e-754ac434ddbe" />
 
@@ -285,6 +285,7 @@ Earlier versions of the hover system could cause severe FPS drops when sweeping 
 - Enable **Show Shared Cursor Names (Overlay)** to see the module's movable label.
 - Foundry's default white cursor name is hidden automatically while the module overlay name is enabled.
 - Use the Default tab in **Cursor Settings** to drag the overlay name label or choose a preset position.
+- Name placement uses the same fixed screen-space offsets in the preview and live overlay; changing a viewer's Shared Cursor Size scales the art without multiplying the saved label offset.
 
 **Middle-mouse targeting not working:**
 
@@ -337,6 +338,9 @@ document.getElementById("board")?.classList.toString()
 https://github.com/GnollStack/Target-The-Beastie/releases/latest/download/module.json
 ```
 
+> [!IMPORTANT]
+> `show-of-hands` and the legacy `target-the-beastie` are distinct Foundry packages. Install Show of Hands, disable the legacy module, and never enable both together. On first load, Show of Hands imports compatible legacy settings and the local user's cursor profile. Verify the migrated profile before uninstalling the legacy package.
+
 3. Enable the module in your world.
 4. Configure it under **Module Settings > Show of Hands**.
 
@@ -384,7 +388,7 @@ https://github.com/GnollStack/Target-The-Beastie/releases/latest/download/module
 
 ## Compatibility
 
-**Module version:** `14.1.0`
+**Module version:** `14.2.0`
 
 **Foundry VTT:** v14+, verified on v14.363.
 
@@ -521,7 +525,7 @@ Submitted ideas may be adapted, declined, or implemented by GnollStack. Any acce
 
 ## AI-Assisted Development
 
-This module is developed and maintained with the help of AI-assisted tools for coding, debugging, documentation, and testing.
+This module is developed and maintained with the help of AI-assisted tools for coding, debugging, and testing.
 
 I care about the quality, behavior, performance, security, and long-term maintainability of this module, and I take full responsibility for what ships. AI assistance does not replace review, testing, debugging, or security and design judgment.
 
@@ -577,7 +581,7 @@ For licensing inquiries or permission slips:
 
 <div align="center">
 
-**Author:** [GnollStack](https://github.com/GnollStack) - **Compatibility:** Foundry VTT v14+ - **Version:** 14.1.0
+**Author:** [GnollStack](https://github.com/GnollStack) - **Compatibility:** Foundry VTT v14+ - **Version:** 14.2.0
 
 [Back to Top](#show-of-hands)
 

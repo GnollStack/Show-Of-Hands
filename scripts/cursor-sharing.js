@@ -4,12 +4,21 @@
  * images, positions, hidden pings, and visibility permission state.
  */
 
-import { MODULE_ID, SOCKET_EVENT, SOCKET_MESSAGE_TYPES, CURSOR_SHARE_THROTTLE_MS, debugLog } from './constants.js';
+import { MODULE_ID, SOCKET_EVENT, SOCKET_MESSAGE_TYPES, CURSOR_SHARE_THROTTLE_MS, CURSOR_SIZE_MAX, debugLog } from './constants.js';
 import { updateRemoteCursor, updateRemoteCursorImage, removeRemoteCursor } from './cursor-overlay.js';
 import { loadImage, getRotatedCursor } from './cursor-styles.js';
+import { computeResizeOutput } from './cursor-geometry-core.js';
+import { LatestValueRateLimiter } from './latest-value-rate-limiter.js';
 import { canBroadcastVisibleCursor, getShowCursorPermissionState } from './foundry-permissions.js';
 import { getHiddenSharedCursorUserIds, getUserCursorConfig, isSharedCursorUserVisible } from './settings.js';
-import { isKnownSocketMessageType, validateSocketMessage } from './socket-messages.js';
+import {
+    MAX_CURSOR_IMAGE_DATA_URL_LENGTH,
+    authenticateSocketSender,
+    isKnownSocketMessageType,
+    isSocketMessageForCurrentView,
+    sanitizeHiddenPing,
+    validateSocketMessage
+} from './socket-messages.js';
 
 // Foundry's native cursor code lives in client/canvas/containers/elements/cursor.mjs.
 // Mirror its coordinates when available so our overlay stays on the same dot.
@@ -19,11 +28,13 @@ let _broadcastEnabled = true;
 let _registered = false;
 let _lastBroadcast = 0;
 let _userConnectedHookId = null;
+let _updateUserHookId = null;
 let _cachedCursorDataUrl = null;
 let _cachedHotspotX = 0;
 let _cachedHotspotY = 0;
 let _broadcastInFlight = false;
 let _broadcastQueued = false;
+let _broadcastGeneration = 0;
 let _permissionBlocked = false;
 let _lastMoveDebugLog = 0;
 let _lastSocketMoveDebugLog = 0;
@@ -33,6 +44,13 @@ const _inboundSocketRateLimits = new Map();
 
 const INBOUND_CURSOR_MOVE_MIN_INTERVAL_MS = 25;
 const INBOUND_CURSOR_IMAGE_MIN_INTERVAL_MS = 250;
+const INBOUND_CURSOR_IMAGE_REQUEST_MIN_INTERVAL_MS = 1000;
+const INBOUND_HIDDEN_PING_MIN_INTERVAL_MS = 500;
+
+const _inboundCursorImageLimiter = new LatestValueRateLimiter({
+    intervalMs: INBOUND_CURSOR_IMAGE_MIN_INTERVAL_MS,
+    deliver: payload => _validateAndApplyInboundCursorImage(payload)
+});
 
 function debugCursorMoveBroadcast(currentPos, now) {
     if (now - _lastMoveDebugLog < 1000) return;
@@ -60,6 +78,32 @@ function _isInboundRateLimited(userId, bucket, minIntervalMs) {
     return false;
 }
 
+function _getCurrentLevelId() {
+    const levelId = canvas?.level?.id;
+    return typeof levelId === 'string' && levelId.length > 0 ? levelId : null;
+}
+
+function _getRecipientOptions(userId) {
+    return { recipients: [userId] };
+}
+
+function _emitModuleSocket(data, recipientUserId = null) {
+    if (recipientUserId) {
+        game.socket.emit(SOCKET_EVENT, data, _getRecipientOptions(recipientUserId));
+        return;
+    }
+    game.socket.emit(SOCKET_EVENT, data);
+}
+
+function _getAuthenticatedSender(data, senderId) {
+    const result = authenticateSocketSender(data?.userId, senderId, game.users);
+    if (!result.valid) {
+        debugLog('sharing', `Ignored unauthenticated socket message: type=${data?.type}, error=${result.error}`);
+        return null;
+    }
+    return result.user;
+}
+
 function _syncVisibleCursorPermission() {
     // Foundry v14 can deny visible cursor broadcasting by permission. When that
     // happens we clear our cached image and tell peers to hide this overlay too.
@@ -69,6 +113,8 @@ function _syncVisibleCursorPermission() {
     _permissionBlocked = blocked;
 
     if (becameBlocked) {
+        _broadcastGeneration += 1;
+        _broadcastQueued = false;
         _cachedCursorDataUrl = null;
         _cachedHotspotX = 0;
         _cachedHotspotY = 0;
@@ -89,6 +135,7 @@ function _syncVisibleCursorPermission() {
 function _canShowRemoteSharedCursor(userId) {
     if (!isSharedCursorUserVisible(userId)) return false;
     const user = game.users?.get?.(userId);
+    if (!user) return false;
     return canBroadcastVisibleCursor(user);
 }
 
@@ -100,6 +147,7 @@ export function startCursorSharing(broadcastEnabled = true) {
         return;
     }
     _active = true;
+    _broadcastGeneration += 1;
 
     // Module socket: images, positions, visibility, and hidden pings.
     game.socket.on(SOCKET_EVENT, _onSocketMessage);
@@ -119,6 +167,8 @@ export function startCursorSharing(broadcastEnabled = true) {
 
     _userConnectedHookId = Hooks.on("userConnected", _onUserConnected);
 
+    _updateUserHookId = Hooks.on('updateUser', _onUserUpdated);
+
     // Only build and broadcast cursor art when sharing is on and Foundry allows it.
     if (_broadcastEnabled && _syncVisibleCursorPermission().allowed) _broadcastCursorImage();
     _requestCursorImages();
@@ -127,6 +177,7 @@ export function startCursorSharing(broadcastEnabled = true) {
 }
 
 export function setCursorBroadcastEnabled(enabled) {
+    _broadcastGeneration += 1;
     _broadcastEnabled = enabled;
     if (!_active) {
         if (!enabled) _emitCursorHidden();
@@ -138,6 +189,7 @@ export function setCursorBroadcastEnabled(enabled) {
         if (_syncVisibleCursorPermission().allowed) _broadcastCursorImage();
         _requestCursorImages();
     } else {
+        _broadcastQueued = false;
         _permissionBlocked = false;
         _cachedCursorDataUrl = null;
         _cachedHotspotX = 0;
@@ -155,6 +207,7 @@ export function broadcastHiddenPing(position, pingData) {
         type: SOCKET_MESSAGE_TYPES.HIDDEN_PING,
         userId: game.user.id,
         sceneId: canvas.scene?.id,
+        levelId: _getCurrentLevelId(),
         position,
         ping: pingData
     });
@@ -168,6 +221,8 @@ export function stopCursorSharing() {
     }
     _active = false;
     _broadcastEnabled = false;
+    _broadcastGeneration += 1;
+    _broadcastQueued = false;
     _permissionBlocked = false;
 
     game.socket.off(SOCKET_EVENT, _onSocketMessage);
@@ -180,16 +235,23 @@ export function stopCursorSharing() {
         _userConnectedHookId = null;
     }
 
+    if (_updateUserHookId !== null) {
+        Hooks.off('updateUser', _updateUserHookId);
+        _updateUserHookId = null;
+    }
+
     _cachedCursorDataUrl = null;
     _cachedHotspotX = 0;
     _cachedHotspotY = 0;
     _inboundSocketRateLimits.clear();
+    _inboundCursorImageLimiter.clear();
 
     debugLog("sharing", "Cursor sharing stopped");
 }
 
 export function syncHiddenRemoteCursors() {
     for (const userId of getHiddenSharedCursorUserIds()) {
+        _inboundCursorImageLimiter.cancel(userId);
         removeRemoteCursor(userId);
     }
     if (_active) _requestCursorImages();
@@ -207,6 +269,7 @@ export function getCursorSharingDebugState() {
         cachedHotspotY: _cachedHotspotY,
         broadcastInFlight: _broadcastInFlight,
         broadcastQueued: _broadcastQueued,
+        broadcastGeneration: _broadcastGeneration,
         showCursorPermission: getShowCursorPermissionState(globalThis.game?.user),
         permissionBlocked: _broadcastEnabled && !canBroadcastVisibleCursor(globalThis.game?.user),
         visibleBroadcastAllowed: _broadcastEnabled && canBroadcastVisibleCursor(globalThis.game?.user),
@@ -220,6 +283,10 @@ export function getCursorSharingDebugState() {
 export async function refreshSharedCursorImage() {
     if (!_active || !_broadcastEnabled) return;
     if (!_syncVisibleCursorPermission().allowed) return;
+    _broadcastGeneration += 1;
+    _cachedCursorDataUrl = null;
+    _cachedHotspotX = 0;
+    _cachedHotspotY = 0;
     await _broadcastCursorImage();
 }
 
@@ -227,6 +294,20 @@ export async function refreshSharedCursorImage() {
  * Mouse move handler registered with Foundry's canvas system.
  * Receives canvas coordinates (PIXI.Point) from the stage pointer events.
  */
+function _cacheAndEmitCursorImage(dataUrl, hotspotX, hotspotY, generation) {
+    if (dataUrl !== null && (typeof dataUrl !== 'string' || dataUrl.length > MAX_CURSOR_IMAGE_DATA_URL_LENGTH)) {
+        throw new Error(`Shared cursor image exceeds the ${MAX_CURSOR_IMAGE_DATA_URL_LENGTH}-character transport limit.`);
+    }
+    if (!_active || !_broadcastEnabled) return false;
+    if (!_syncVisibleCursorPermission().allowed) return false;
+    if (generation !== _broadcastGeneration) return false;
+    _cachedCursorDataUrl = dataUrl;
+    _cachedHotspotX = hotspotX;
+    _cachedHotspotY = hotspotY;
+    _emitCursorImage(dataUrl, hotspotX, hotspotY);
+    return true;
+}
+
 function _onCanvasMouseMove(currentPos) {
     if (!_active || !_broadcastEnabled) return;
     const permission = _syncVisibleCursorPermission();
@@ -244,6 +325,7 @@ function _onCanvasMouseMove(currentPos) {
         type: SOCKET_MESSAGE_TYPES.CURSOR_MOVE,
         userId: game.user.id,
         sceneId: canvas.scene?.id,
+        levelId: _getCurrentLevelId(),
         x: currentPos.x,
         y: currentPos.y
     });
@@ -260,25 +342,20 @@ async function _broadcastCursorImage() {
         return;
     }
     _broadcastInFlight = true;
+    const generation = _broadcastGeneration;
 
     try {
         const config = getUserCursorConfig(game.user);
         const isCursorEnabled = config.useCustomCursor;
         if (!isCursorEnabled) {
-            _cachedCursorDataUrl = null;
-            _cachedHotspotX = 0;
-            _cachedHotspotY = 0;
-            _emitCursorImage(null, 0, 0);
+            _cacheAndEmitCursorImage(null, 0, 0, generation);
             return;
         }
 
         const states = config.cursorStates;
         const def = states?.default;
         if (!def?.image) {
-            _cachedCursorDataUrl = null;
-            _cachedHotspotX = 0;
-            _cachedHotspotY = 0;
-            _emitCursorImage(null, 0, 0);
+            _cacheAndEmitCursorImage(null, 0, 0, generation);
             return;
         }
 
@@ -290,43 +367,70 @@ async function _broadcastCursorImage() {
         if (rotation !== 0 || targetWidth > 0 || targetHeight > 0) {
             const processed = await getRotatedCursor(def.image, def.hotspotX, def.hotspotY, rotation, targetWidth, targetHeight);
             if (processed) {
-                _cachedCursorDataUrl = processed.dataUrl;
-                _cachedHotspotX = processed.hotspotX;
-                _cachedHotspotY = processed.hotspotY;
-                _emitCursorImage(_cachedCursorDataUrl, _cachedHotspotX, _cachedHotspotY);
+                _cacheAndEmitCursorImage(processed.dataUrl, processed.hotspotX, processed.hotspotY, generation);
                 return;
             }
         }
 
         // No rotation/resize: convert the original image to a data URL so peers
-        // do not need filesystem access to the same asset path.
+        // do not need filesystem access to the same asset path. Always cap the
+        // raster before transport, including natural-sized source images.
         const img = await loadImage(def.image);
+        const out = computeResizeOutput(img.width, img.height, def.hotspotX, def.hotspotY, CURSOR_SIZE_MAX);
         const cvs = document.createElement('canvas');
-        cvs.width = img.width;
-        cvs.height = img.height;
+        cvs.width = out.width;
+        cvs.height = out.height;
         const ctx = cvs.getContext('2d');
         if (!ctx) throw new Error("Unable to create a 2D canvas context for shared cursor image.");
-        ctx.drawImage(img, 0, 0);
-        _cachedCursorDataUrl = cvs.toDataURL('image/png');
-        _cachedHotspotX = def.hotspotX;
-        _cachedHotspotY = def.hotspotY;
-        if (_broadcastEnabled) _emitCursorImage(_cachedCursorDataUrl, _cachedHotspotX, _cachedHotspotY);
+        ctx.drawImage(img, 0, 0, out.width, out.height);
+        _cacheAndEmitCursorImage(cvs.toDataURL('image/png'), out.hotspotX, out.hotspotY, generation);
     } catch (e) {
         console.warn(`${MODULE_ID} | Failed to build shared cursor image:`, e);
-        _cachedCursorDataUrl = null;
-        _cachedHotspotX = 0;
-        _cachedHotspotY = 0;
-        _emitCursorImage(null, 0, 0);
+        if (generation === _broadcastGeneration) _cacheAndEmitCursorImage(null, 0, 0, generation);
     } finally {
         _broadcastInFlight = false;
         if (_broadcastQueued) {
             _broadcastQueued = false;
-            _broadcastCursorImage();
+            if (_active && _broadcastEnabled) _broadcastCursorImage();
         }
     }
 }
 
-function _emitCursorImage(dataUrl, hotspotX, hotspotY) {
+function _applyInboundCursorImage({ senderId, data } = {}) {
+    if (!_active || !senderId || !data) return;
+    const sender = game.users?.get?.(senderId);
+    if (!sender || !_canShowRemoteSharedCursor(senderId)) {
+        removeRemoteCursor(senderId);
+        return;
+    }
+    updateRemoteCursorImage(
+        senderId,
+        data.imageDataUrl,
+        data.hotspotX,
+        data.hotspotY,
+        sender.name,
+        data.namePosition,
+        data.nameOffset
+    );
+}
+
+function _normalizeSocketMessageOrLog(data) {
+    const validation = validateSocketMessage(data);
+    if (validation.valid) return validation.data;
+    if (isKnownSocketMessageType(data?.type)) {
+        debugLog("sharing", `Ignored malformed socket message: type=${data.type}, error=${validation.error}`);
+    }
+    return null;
+}
+
+function _validateAndApplyInboundCursorImage(payload) {
+    const data = _normalizeSocketMessageOrLog(payload?.data);
+    if (!data) return;
+    debugSocketMessage(data);
+    _applyInboundCursorImage({ ...payload, data });
+}
+
+function _emitCursorImage(dataUrl, hotspotX, hotspotY, recipientUserId = null) {
     if (!_broadcastEnabled) return;
     if (!_syncVisibleCursorPermission().allowed) return;
 
@@ -339,7 +443,7 @@ function _emitCursorImage(dataUrl, hotspotX, hotspotY) {
         nameOffset = config.nameOffset;
     } catch { /* use defaults */ }
 
-    game.socket.emit(SOCKET_EVENT, {
+    _emitModuleSocket({
         type: SOCKET_MESSAGE_TYPES.CURSOR_IMAGE,
         userId: game.user.id,
         playerName: game.user.name,
@@ -348,83 +452,102 @@ function _emitCursorImage(dataUrl, hotspotX, hotspotY) {
         hotspotY,
         namePosition,
         nameOffset
-    });
+    }, recipientUserId);
     debugLog("sharing", "Broadcast cursor image", dataUrl ? `(${dataUrl.length} bytes)` : "(cleared)");
 }
 
-function _emitCursorHidden() {
-    game.socket.emit(SOCKET_EVENT, {
+function _emitCursorHidden(recipientUserId = null) {
+    _emitModuleSocket({
         type: SOCKET_MESSAGE_TYPES.CURSOR_HIDDEN,
         userId: game.user.id
-    });
+    }, recipientUserId);
     debugLog("sharing", "Broadcast cursor hidden");
 }
 
 function _requestCursorImages(targetUserId = null) {
-    game.socket.emit(SOCKET_EVENT, {
+    _emitModuleSocket({
         type: SOCKET_MESSAGE_TYPES.REQUEST_CURSOR_IMAGE,
         userId: game.user.id,
         targetUserId
-    });
+    }, targetUserId);
     debugLog("sharing", targetUserId ? `Requested cursor image from ${targetUserId}` : "Requested cursor images from active peers");
 }
 
-function _onSocketMessage(data) {
-    const validation = validateSocketMessage(data);
-    if (!validation.valid) {
-        if (isKnownSocketMessageType(data?.type)) {
-            debugLog("sharing", `Ignored malformed socket message: type=${data.type}, error=${validation.error}`);
+function _onSocketMessage(data, senderId) {
+    const sender = _getAuthenticatedSender(data, senderId);
+    if (!sender) return;
+
+    // Cursor-image header validation decodes bounded base64. Authenticate and
+    // coalesce by sender before doing that work, while keeping null clears
+    // immediate and fully validated.
+    if (data?.type === SOCKET_MESSAGE_TYPES.CURSOR_IMAGE) {
+        if (sender.id === game.user.id) return;
+        if (!_canShowRemoteSharedCursor(sender.id)) {
+            _inboundCursorImageLimiter.cancel(sender.id);
+            removeRemoteCursor(sender.id);
+            return;
+        }
+        const payload = { senderId: sender.id, data };
+        if (data.imageDataUrl === null) {
+            const normalizedData = _normalizeSocketMessageOrLog(data);
+            if (!normalizedData) return;
+            debugSocketMessage(normalizedData);
+            _inboundCursorImageLimiter.cancel(sender.id);
+            _applyInboundCursorImage({ ...payload, data: normalizedData });
+        } else {
+            _inboundCursorImageLimiter.push(sender.id, payload);
         }
         return;
     }
 
+    data = _normalizeSocketMessageOrLog(data);
+    if (!data) return;
     debugSocketMessage(data);
     if (data.type === SOCKET_MESSAGE_TYPES.CURSOR_MOVE) {
-        if (data.userId === game.user.id) return;
-        if (!_canShowRemoteSharedCursor(data.userId)) {
-            removeRemoteCursor(data.userId);
+        if (sender.id === game.user.id) return;
+        if (!isSocketMessageForCurrentView(data, sender, canvas)) {
+            removeRemoteCursor(sender.id);
             return;
         }
-        if (data.sceneId !== canvas.scene?.id) return;
-        if (_isInboundRateLimited(data.userId, "move", INBOUND_CURSOR_MOVE_MIN_INTERVAL_MS)) return;
-        updateRemoteCursor(data.userId, data.x, data.y, { source: "module" });
-    } else if (data.type === SOCKET_MESSAGE_TYPES.CURSOR_IMAGE) {
-        if (data.userId === game.user.id) return;
-        if (!_canShowRemoteSharedCursor(data.userId)) {
-            removeRemoteCursor(data.userId);
+        if (!_canShowRemoteSharedCursor(sender.id)) {
+            removeRemoteCursor(sender.id);
             return;
         }
-        if (data.imageDataUrl !== null && _isInboundRateLimited(data.userId, "image", INBOUND_CURSOR_IMAGE_MIN_INTERVAL_MS)) return;
-        updateRemoteCursorImage(
-            data.userId,
-            data.imageDataUrl,
-            data.hotspotX,
-            data.hotspotY,
-            data.playerName,
-            data.namePosition,
-            data.nameOffset
-        );
+        if (_isInboundRateLimited(sender.id, "move", INBOUND_CURSOR_MOVE_MIN_INTERVAL_MS)) return;
+        updateRemoteCursor(sender.id, data.x, data.y, { source: "module" });
     } else if (data.type === SOCKET_MESSAGE_TYPES.CURSOR_HIDDEN) {
-        if (data.userId === game.user.id) return;
-        removeRemoteCursor(data.userId);
+        if (sender.id === game.user.id) return;
+        _inboundCursorImageLimiter.cancel(sender.id);
+        removeRemoteCursor(sender.id);
     } else if (data.type === SOCKET_MESSAGE_TYPES.HIDDEN_PING) {
-        if (data.userId === game.user.id) return;
-        if (data.sceneId !== canvas.scene?.id) return;
-        const user = game.users.get(data.userId);
+        if (sender.id === game.user.id) return;
+        if (!isSocketMessageForCurrentView(data, sender, canvas)) return;
+        const user = sender;
         if (!user || !canvas.ready || !data.position) return;
-        canvas.controls.handlePing(user, data.position, data.ping ?? {});
+        if (user.hasPermission?.('PING_CANVAS') !== true) return;
+        if (_isInboundRateLimited(sender.id, 'hiddenPing', INBOUND_HIDDEN_PING_MIN_INTERVAL_MS)) return;
+        const ping = sanitizeHiddenPing(data, user, globalThis.CONFIG?.Canvas);
+        canvas.controls.handlePing(user, data.position, ping);
     } else if (data.type === SOCKET_MESSAGE_TYPES.REQUEST_CURSOR_IMAGE) {
-        if (data.userId === game.user.id) return;
+        if (sender.id === game.user.id) return;
         if (data.targetUserId && data.targetUserId !== game.user.id) return;
-        if (!_broadcastEnabled) return;
+        if (_isInboundRateLimited(sender.id, 'imageRequest', INBOUND_CURSOR_IMAGE_REQUEST_MIN_INTERVAL_MS)) return;
         // Another user is asking us for our current cursor image.
-        if (_broadcastEnabled && _syncVisibleCursorPermission().allowed) _emitCursorImage(_cachedCursorDataUrl, _cachedHotspotX, _cachedHotspotY);
-        else _emitCursorHidden();
+        if (_broadcastEnabled && _syncVisibleCursorPermission().allowed) {
+            _emitCursorImage(_cachedCursorDataUrl, _cachedHotspotX, _cachedHotspotY, sender.id);
+        } else {
+            _emitCursorHidden(sender.id);
+        }
     }
 }
 
 function _onFoundryUserActivity(userId, activityData = {}) {
     if (!_active || userId === game.user.id) return;
+    const user = game.users?.get?.(userId);
+    if (!user) {
+        removeRemoteCursor(userId);
+        return;
+    }
     if (!_canShowRemoteSharedCursor(userId)) {
         removeRemoteCursor(userId);
         return;
@@ -435,8 +558,11 @@ function _onFoundryUserActivity(userId, activityData = {}) {
         return;
     }
 
-    const sceneId = activityData.sceneId ?? game.users.get(userId)?.viewedScene;
-    if (sceneId && sceneId !== canvas.scene?.id) {
+    const view = {
+        sceneId: activityData.sceneId ?? user.viewedScene,
+        levelId: activityData.levelId ?? user.viewedLevel
+    };
+    if (!isSocketMessageForCurrentView(view, user, canvas)) {
         removeRemoteCursor(userId);
         return;
     }
@@ -456,16 +582,40 @@ function _onFoundryUserActivity(userId, activityData = {}) {
     updateRemoteCursor(userId, x, y, { source: "native" });
 }
 
+function _removeCursorOutsideCurrentView(user) {
+    if (!user || user.id === game.user.id) return;
+    const view = { sceneId: user.viewedScene, levelId: user.viewedLevel };
+    if (!isSocketMessageForCurrentView(view, user, canvas)) {
+        _inboundCursorImageLimiter.cancel(user.id);
+        removeRemoteCursor(user.id);
+    }
+}
+
+function _onUserUpdated(user, change = {}) {
+    const viewChanged = Object.prototype.hasOwnProperty.call(change, 'viewedScene') ||
+        Object.prototype.hasOwnProperty.call(change, 'viewedLevel');
+    if (!viewChanged) return;
+
+    if (user.id !== game.user.id) {
+        _removeCursorOutsideCurrentView(user);
+        return;
+    }
+
+    const users = game.users?.contents ?? [...(game.users?.values?.() ?? [])];
+    for (const remoteUser of users) _removeCursorOutsideCurrentView(remoteUser);
+}
+
 function _onUserConnected(user, connected) {
     if (user.id === game.user.id) return;
     if (!connected) {
         _inboundSocketRateLimits.delete(user.id);
+        _inboundCursorImageLimiter.cancel(user.id, { forgetLast: true });
         removeRemoteCursor(user.id);
         debugLog("sharing", `User disconnected: ${user.name}`);
     } else {
         // Peer joined; exchange cursor images once visibility checks pass.
         if (_broadcastEnabled && _syncVisibleCursorPermission().allowed) {
-            _emitCursorImage(_cachedCursorDataUrl, _cachedHotspotX, _cachedHotspotY);
+            _emitCursorImage(_cachedCursorDataUrl, _cachedHotspotX, _cachedHotspotY, user.id);
         }
         if (_canShowRemoteSharedCursor(user.id)) _requestCursorImages(user.id);
         debugLog("sharing", `User connected: ${user.name}, exchanging cursor images`);

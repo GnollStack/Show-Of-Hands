@@ -4,7 +4,7 @@
  * per-user cursor profile normalization for Show of Hands.
  */
 
-import { MODULE_ID, LEGACY_MODULE_ID, DEBUG_MODES, DEFAULT_CURSOR_PATH, DEFAULT_HOTSPOT, CURSOR_SIZE_MAX, CURSOR_STATE_KEYS, debugLog } from './constants.js';
+import { MODULE_ID, LEGACY_MODULE_ID, DEBUG_MODES, DEFAULT_CURSOR_PATH, DEFAULT_HOTSPOT, CURSOR_SIZE_MAX, CURSOR_SOURCE_HOTSPOT_MAX, CURSOR_STATE_KEYS, debugLog } from './constants.js';
 
 const CURRENT_SETTINGS_VERSION = 5;
 export const USER_CURSOR_CONFIG_FLAG = "cursorConfig";
@@ -98,10 +98,12 @@ function getStoredSettingsVersion() {
 
 function migrateLegacyModulePaths(value) {
     // Cursor image paths may still point at the old module folder after a rename.
-    // Scrub only the bundled files we removed; keep user-picked FilePicker paths.
+    // Scrub only bundled files known to have been removed. The legacy package
+    // is a distinct install, so rewriting arbitrary user-picked paths into the
+    // new package would point at files which may not exist there.
     if (typeof value === "string") {
         if (isRemovedBundledCursorPath(value)) return "";
-        return value.replaceAll(`modules/${LEGACY_MODULE_ID}/`, `modules/${MODULE_ID}/`);
+        return value;
     }
     if (Array.isArray(value)) return value.map(migrateLegacyModulePaths);
     if (value && typeof value === "object") {
@@ -123,12 +125,22 @@ function migrateLegacyModulePaths(value) {
     return value;
 }
 
-async function migrateLegacyNamespaceSettings() {
+async function migrateLegacyNamespaceSettings({ scopes = ["client", "world"] } = {}) {
     if (!game.settings?.storage?.get) return;
+    const allowedScopes = new Set(scopes);
+    const failures = [];
+    const currentSharing = getStoredSettingData("client", MODULE_ID, "enable-cursor-sharing");
+    const currentPrivate = getStoredSettingData("client", MODULE_ID, "hide-my-cursor-from-others");
+    const hasCurrentLegacySharingMode = currentSharing.found || currentPrivate.found;
 
     // Copy old namespace values only when this install has not saved the new key yet.
     for (const definition of SETTING_DEFINITIONS) {
+        // A partially upgraded current namespace is newer than the old package
+        // namespace. Do not let a stale legacy compact mode overwrite current
+        // old-format sharing/privacy booleans.
+        if (definition.key === "cursor-sharing-mode" && hasCurrentLegacySharingMode) continue;
         const scope = definition.scope ?? "client";
+        if (!allowedScopes.has(scope)) continue;
         const current = getStoredSettingData(scope, MODULE_ID, definition.key);
         if (current.found) continue;
 
@@ -139,8 +151,32 @@ async function migrateLegacyNamespaceSettings() {
             await game.settings.set(MODULE_ID, definition.key, migrateLegacyModulePaths(legacy.value));
         } catch (error) {
             console.warn(`${MODULE_ID} | Could not migrate legacy ${LEGACY_MODULE_ID}.${definition.key}.`, error);
+            failures.push(error);
         }
     }
+
+    if (failures.length) {
+        throw new AggregateError(failures, `One or more ${LEGACY_MODULE_ID} namespace settings could not be migrated.`);
+    }
+}
+
+async function materializeCurrentLegacyCursorSharingMode() {
+    const currentMode = getStoredSettingData("client", MODULE_ID, "cursor-sharing-mode");
+    if (currentMode.found) return;
+
+    const currentSharing = getStoredSettingData("client", MODULE_ID, "enable-cursor-sharing");
+    const currentPrivate = getStoredSettingData("client", MODULE_ID, "hide-my-cursor-from-others");
+    if (!currentSharing.found && !currentPrivate.found) return;
+
+    const legacySharing = getStoredSettingData("client", LEGACY_MODULE_ID, "enable-cursor-sharing");
+    const legacyPrivate = getStoredSettingData("client", LEGACY_MODULE_ID, "hide-my-cursor-from-others");
+    const sharing = currentSharing.found
+        ? !!currentSharing.value
+        : (legacySharing.found ? !!legacySharing.value : true);
+    const privateMode = currentPrivate.found
+        ? !!currentPrivate.value
+        : (legacyPrivate.found ? !!legacyPrivate.value : false);
+    await game.settings.set(MODULE_ID, "cursor-sharing-mode", privateMode ? "private" : (sharing ? "share" : "receive"));
 }
 
 function createDefaultState(key) {
@@ -435,8 +471,8 @@ function clampCursorState(state, defaults) {
         if (!Number.isFinite(n) || n <= 0) return 0;
         return Math.min(CURSOR_SIZE_MAX, Math.max(1, n));
     };
-    state.hotspotX = clampInt(state.hotspotX, 0, CURSOR_SIZE_MAX, defaults.hotspotX);
-    state.hotspotY = clampInt(state.hotspotY, 0, CURSOR_SIZE_MAX, defaults.hotspotY);
+    state.hotspotX = clampInt(state.hotspotX, 0, CURSOR_SOURCE_HOTSPOT_MAX, defaults.hotspotX);
+    state.hotspotY = clampInt(state.hotspotY, 0, CURSOR_SOURCE_HOTSPOT_MAX, defaults.hotspotY);
     state.rotation = ((clampInt(state.rotation, -3600, 3600, 0) % 360) + 360) % 360;
     state.width = clampSize(state.width);
     state.height = clampSize(state.height);
@@ -508,11 +544,34 @@ export async function migrateLegacyUserCursorConfig(user = game.user) {
     if (stored !== undefined) return { migrated: false, reason: "current-profile-exists" };
 
     const legacy = readUserCursorConfigFlag(user, LEGACY_MODULE_ID);
-    if (legacy === undefined) return { migrated: false, reason: "legacy-profile-missing" };
+    if (legacy === undefined) {
+        // Versions before per-user flags stored the local profile in client
+        // settings. Import it only when a cursor-states value was actually
+        // persisted, so fresh installs do not materialize a redundant flag.
+        const currentStates = getStoredSettingData("client", MODULE_ID, "cursor-states");
+        const legacyStates = getStoredSettingData("client", LEGACY_MODULE_ID, "cursor-states");
+        const storedStates = currentStates.found ? currentStates : legacyStates;
+        if (!storedStates.found) return { migrated: false, reason: "legacy-profile-missing" };
+
+        const readStoredProfileValue = (key, fallback) => {
+            const current = getStoredSettingData("client", MODULE_ID, key);
+            if (current.found) return current.value;
+            const old = getStoredSettingData("client", LEGACY_MODULE_ID, key);
+            return old.found ? old.value : fallback;
+        };
+        const normalized = normalizeUserCursorConfig({
+            useCustomCursor: readStoredProfileValue("use-custom-cursor", true),
+            cursorStates: storedStates.value,
+            namePosition: readStoredProfileValue("cursor-name-position", "bottom-center"),
+            nameOffset: readStoredProfileValue("cursor-name-offset", { x: 0, y: 1.2 })
+        });
+        await user.setFlag(MODULE_ID, USER_CURSOR_CONFIG_FLAG, normalized);
+        return { migrated: true, source: "client-settings", profile: normalized };
+    }
 
     const normalized = normalizeUserCursorConfig(legacy);
     await user.setFlag(MODULE_ID, USER_CURSOR_CONFIG_FLAG, normalized);
-    return { migrated: true, profile: normalized };
+    return { migrated: true, source: "legacy-user-flag", profile: normalized };
 }
 
 export async function setUserCursorConfig(user, config) {
@@ -562,6 +621,50 @@ export function isMiddleMouseMarqueeEnabled() {
 }
 
 export function getCursorSharingMode() {
+    // Foundry draws the initial canvas before its `ready` hook. During a
+    // namespace upgrade, migration can therefore still be running when the
+    // privacy wrapper asks for the effective sharing mode. Prefer explicitly
+    // persisted values from either namespace so a legacy private preference
+    // never falls through to the new-install "share" default.
+    try {
+        const currentMode = getStoredSettingData("client", MODULE_ID, "cursor-sharing-mode");
+        if (currentMode.found && Object.prototype.hasOwnProperty.call(CURSOR_SHARING_MODES, currentMode.value)) {
+            return currentMode.value;
+        }
+
+        const currentSharing = getStoredSettingData("client", MODULE_ID, "enable-cursor-sharing");
+        const currentPrivate = getStoredSettingData("client", MODULE_ID, "hide-my-cursor-from-others");
+        if (currentSharing.found || currentPrivate.found) {
+            const legacySharing = getStoredSettingData("client", LEGACY_MODULE_ID, "enable-cursor-sharing");
+            const legacyPrivate = getStoredSettingData("client", LEGACY_MODULE_ID, "hide-my-cursor-from-others");
+            const sharing = currentSharing.found
+                ? !!currentSharing.value
+                : (legacySharing.found ? !!legacySharing.value : true);
+            const privateMode = currentPrivate.found
+                ? !!currentPrivate.value
+                : (legacyPrivate.found ? !!legacyPrivate.value : false);
+            return privateMode ? "private" : (sharing ? "share" : "receive");
+        }
+
+        const legacyMode = getStoredSettingData("client", LEGACY_MODULE_ID, "cursor-sharing-mode");
+        if (legacyMode.found && Object.prototype.hasOwnProperty.call(CURSOR_SHARING_MODES, legacyMode.value)) {
+            return legacyMode.value;
+        }
+
+        const legacySharing = getStoredSettingData("client", LEGACY_MODULE_ID, "enable-cursor-sharing");
+        const legacyPrivate = getStoredSettingData("client", LEGACY_MODULE_ID, "hide-my-cursor-from-others");
+        const hasLegacyBooleans = legacySharing.found || legacyPrivate.found;
+
+        if (hasLegacyBooleans) {
+            const sharing = legacySharing.found ? !!legacySharing.value : true;
+            const privateMode = legacyPrivate.found ? !!legacyPrivate.value : false;
+            return privateMode ? "private" : (sharing ? "share" : "receive");
+        }
+    } catch {
+        // Settings storage may be unavailable during very early startup. The
+        // registered value remains the final fallback below.
+    }
+
     return getChoiceSetting("cursor-sharing-mode", CURSOR_SHARING_MODES, "share");
 }
 
@@ -614,12 +717,15 @@ export function isSharedCursorUserVisible(userId) {
     return !getHiddenSharedCursorUserIds().has(userId);
 }
 
-export async function migrateSettings() {
-    await migrateLegacyNamespaceSettings();
+export async function migrateSettings({ includeWorld = true } = {}) {
+    await migrateLegacyNamespaceSettings({ scopes: includeWorld ? ["client", "world"] : ["client"] });
 
     let version = getStoredSettingsVersion();
 
-    if (version >= CURRENT_SETTINGS_VERSION) return;
+    if (version >= CURRENT_SETTINGS_VERSION) {
+        await materializeCurrentLegacyCursorSharingMode();
+        return;
+    }
 
     const runStep = async (targetVersion, migrate) => {
         if (version >= targetVersion) return true;
@@ -631,12 +737,12 @@ export async function migrateSettings() {
             return true;
         } catch (e) {
             console.warn(`${MODULE_ID} | Migration to v${targetVersion} failed; stopping at v${version}.`, e);
-            return false;
+            throw e;
         }
     };
 
     if (version < 2) {
-        const completed = await runStep(2, async () => {
+        await runStep(2, async () => {
             let oldEnabled = true;
 
             try { oldEnabled = game.settings.get(MODULE_ID, "use-aom-cursor"); } catch { /* legacy setting may not exist */ }
@@ -646,11 +752,10 @@ export async function migrateSettings() {
             await game.settings.set(MODULE_ID, "use-custom-cursor", oldEnabled);
             await game.settings.set(MODULE_ID, "cursor-states", getDefaultCursorStates());
         });
-        if (!completed) return;
     }
 
     if (version < 3) {
-        const completed = await runStep(3, async () => {
+        await runStep(3, async () => {
             const defaults = getDefaultCursorStates();
             const existingStates = game.settings.get(MODULE_ID, "cursor-states") ?? {};
             const mergedStates = foundry.utils.mergeObject(defaults, existingStates, {
@@ -662,11 +767,10 @@ export async function migrateSettings() {
 
             await game.settings.set(MODULE_ID, "cursor-states", mergedStates);
         });
-        if (!completed) return;
     }
 
     if (version < 4) {
-        const completed = await runStep(4, async () => {
+        await runStep(4, async () => {
             const targeting = game.settings.get(MODULE_ID, "use-mousewheel-targeting");
             const marquee = game.settings.get(MODULE_ID, "use-marquee-select");
             let middleMouseMode = "off";
@@ -681,16 +785,22 @@ export async function migrateSettings() {
             await game.settings.set(MODULE_ID, "middle-mouse-actions", middleMouseMode);
             await game.settings.set(MODULE_ID, "cursor-sharing-mode", cursorSharingMode);
         });
-        if (!completed) return;
     }
 
 
     if (version < 5) {
-        const completed = await runStep(5, async () => {
+        await runStep(5, async () => {
             const existingStates = game.settings.get(MODULE_ID, "cursor-states") ?? {};
             await game.settings.set(MODULE_ID, "cursor-states", normalizeCursorStates(existingStates));
         });
-        if (!completed) return;
     }
+    await materializeCurrentLegacyCursorSharingMode();
     debugLog("cursor", `Migration complete (v${version}).`);
+}
+
+export async function migrateWorldSettings() {
+    // Foundry V14 rejects world-setting writes before ready. Only a GM can
+    // perform the namespace copy; another GM client can safely do it later.
+    if (!game?.ready || !game.user?.isGM) return;
+    await migrateLegacyNamespaceSettings({ scopes: ["world"] });
 }

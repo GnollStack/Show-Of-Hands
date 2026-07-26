@@ -48,6 +48,18 @@ function normalizeRunId(runId) {
     return normalized;
 }
 
+function getErrorMessage(error) {
+    return error?.message ?? String(error);
+}
+
+function makeCleanupFailureError(primaryError, cleanupError) {
+    return new AggregateError(
+        [primaryError, cleanupError],
+        `Diagnostics automation failed (${getErrorMessage(primaryError)}), and cleanup also failed `
+        + `(${getErrorMessage(cleanupError)}). Temporary fixtures may remain.`
+    );
+}
+
 function getSceneCounts(scene = getActiveScene()) {
     return {
         worldId: getWorldId(),
@@ -90,7 +102,7 @@ function readDocumentFlag(document, scope, key) {
     return document?.flags?.[scope]?.[key];
 }
 
-function isFixtureToken(document, { runId } = {}) {
+function isFixtureToken(document, { runId, scene = getActiveScene() } = {}) {
     const name = String(document?.name ?? "");
     if (!name.startsWith(FIXTURE_PREFIX) && !name.startsWith(LEGACY_FIXTURE_PREFIX)) return false;
 
@@ -99,13 +111,13 @@ function isFixtureToken(document, { runId } = {}) {
     const marker = readDocumentFlag(document, MODULE_ID, FIXTURE_FLAG) ?? readDocumentFlag(document, LEGACY_MODULE_ID, FIXTURE_FLAG);
     if (!marker || typeof marker !== "object") return false;
     if (marker.worldId !== getWorldId()) return false;
-    if (marker.sceneId !== getActiveScene()?.id) return false;
+    if (marker.sceneId !== scene?.id) return false;
     if (runId && marker.runId !== runId) return false;
     return true;
 }
 
-function findFixtureTokens({ runId } = {}) {
-    return collectionToArray(getActiveScene()?.tokens).filter(document => isFixtureToken(document, { runId }));
+function findFixtureTokens({ runId, scene = getActiveScene() } = {}) {
+    return collectionToArray(scene?.tokens).filter(document => isFixtureToken(document, { runId, scene }));
 }
 
 function getTokenDocument(tokenOrDocument) {
@@ -165,13 +177,14 @@ async function createTokenFixtures(scene, runId) {
     }));
 }
 
-async function exerciseMarqueeFilters(createdTokens) {
+async function exerciseMarqueeFilters(createdTokens, scene) {
     const originalFilter = game.settings.get(MODULE_ID, "marquee-token-filter");
     const tokenDocs = createdTokens
-        .map(token => getActiveScene()?.tokens?.get?.(token.id))
+        .map(token => scene?.tokens?.get?.(token.id))
         .filter(Boolean);
 
     const results = [];
+    let primaryError = null;
     try {
         for (const filter of MARQUEE_FILTER_SAMPLES) {
             await game.settings.set(MODULE_ID, "marquee-token-filter", filter);
@@ -182,8 +195,20 @@ async function exerciseMarqueeFilters(createdTokens) {
                     .map(document => document.name)
             });
         }
+    } catch (error) {
+        primaryError = error;
+        throw error;
     } finally {
-        await game.settings.set(MODULE_ID, "marquee-token-filter", originalFilter);
+        try {
+            await game.settings.set(MODULE_ID, "marquee-token-filter", originalFilter);
+        } catch (restoreError) {
+            if (!primaryError) throw restoreError;
+            throw new AggregateError(
+                [primaryError, restoreError],
+                `Marquee filter exercise failed (${getErrorMessage(primaryError)}), and restoring the original setting also failed `
+                + `(${getErrorMessage(restoreError)}).`
+            );
+        }
     }
 
     return {
@@ -193,19 +218,16 @@ async function exerciseMarqueeFilters(createdTokens) {
     };
 }
 
-export async function cleanupFixtures({ runId } = {}) {
-    const scene = getActiveScene();
-    if (!scene) throw new Error("MCP Diagnostics Automation requires an active scene.");
-
+async function cleanupFixturesInScene(scene, { runId } = {}) {
     const before = getSceneCounts(scene);
-    const fixtures = findFixtureTokens({ runId });
+    const fixtures = findFixtureTokens({ runId, scene });
     const tokenIds = fixtures.map(document => document.id).filter(Boolean);
 
     if (tokenIds.length) {
         await scene.deleteEmbeddedDocuments("Token", tokenIds);
     }
 
-    const remainingFixtures = findFixtureTokens({ runId });
+    const remainingFixtures = findFixtureTokens({ runId, scene });
     return {
         success: true,
         runId: runId ?? null,
@@ -217,6 +239,12 @@ export async function cleanupFixtures({ runId } = {}) {
         deletedIds: tokenIds,
         remainingFixtures: remainingFixtures.length
     };
+}
+
+export async function cleanupFixtures({ runId } = {}) {
+    const scene = getActiveScene();
+    if (!scene) throw new Error("MCP Diagnostics Automation requires an active scene.");
+    return cleanupFixturesInScene(scene, { runId });
 }
 
 export async function runAutomation({
@@ -235,32 +263,44 @@ export async function runAutomation({
     if (cleanupBefore !== false) {
         steps.push({
             step: "cleanupBefore",
-            result: await cleanupFixtures({ runId: cleanupBeforeRunId })
+            result: await cleanupFixturesInScene(scene, { runId: cleanupBeforeRunId })
         });
     }
-
-    const createdTokens = await createTokenFixtures(scene, normalizedRunId);
-    steps.push({
-        step: "createFixtures",
-        createdCount: createdTokens.length,
-        createdTokens
-    });
-
-    steps.push({
-        step: "exerciseMarqueeFilters",
-        result: await exerciseMarqueeFilters(createdTokens)
-    });
 
     let cleanupResult = null;
-    if (cleanupAfter !== false) {
-        cleanupResult = await cleanupFixtures({ runId: normalizedRunId });
+    let primaryError = null;
+    try {
+        const createdTokens = await createTokenFixtures(scene, normalizedRunId);
         steps.push({
-            step: "cleanupAfter",
-            result: cleanupResult
+            step: "createFixtures",
+            createdCount: createdTokens.length,
+            createdTokens
         });
+
+        steps.push({
+            step: "exerciseMarqueeFilters",
+            result: await exerciseMarqueeFilters(createdTokens, scene)
+        });
+    } catch (error) {
+        primaryError = error;
+        throw error;
+    } finally {
+        if (cleanupAfter !== false) {
+            try {
+                cleanupResult = await cleanupFixturesInScene(scene, { runId: normalizedRunId });
+                steps.push({
+                    step: "cleanupAfter",
+                    result: cleanupResult
+                });
+            } catch (cleanupError) {
+                if (!primaryError) throw cleanupError;
+                console.error(`${MODULE_ID} | Automation cleanup also failed after the primary error:`, cleanupError);
+                throw makeCleanupFailureError(primaryError, cleanupError);
+            }
+        }
     }
 
-    const remainingFixtures = findFixtureTokens({ runId: normalizedRunId }).length;
+    const remainingFixtures = findFixtureTokens({ runId: normalizedRunId, scene }).length;
     return {
         success: true,
         runId: normalizedRunId,
@@ -278,7 +318,7 @@ export async function runAutomation({
 
 export function getFixtureStatus({ runId } = {}) {
     const scene = getActiveScene();
-    const fixtures = scene ? findFixtureTokens({ runId }) : [];
+    const fixtures = scene ? findFixtureTokens({ runId, scene }) : [];
     return {
         fixturePrefix: FIXTURE_PREFIX,
         fixtureFlag: FIXTURE_FLAG,

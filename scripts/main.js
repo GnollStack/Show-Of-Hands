@@ -13,6 +13,7 @@ import {
     SETTING_DEFINITIONS,
     USER_CURSOR_CONFIG_FLAG,
     buildSettingRegistrationOptions,
+    getCursorSharingMode,
     getMarqueeLevelFilter,
     getMiddleMouseActionMode,
     getUserCursorConfig,
@@ -20,6 +21,7 @@ import {
     isCursorPrivateMode,
     migrateLegacyUserCursorConfig,
     migrateSettings,
+    migrateWorldSettings,
     summarizeCursorConfigForLog
 } from './settings.js';
 import { applyCursorStyles } from './cursor-styles.js';
@@ -40,6 +42,42 @@ import {
 
 debugLog("cursor", "main.js loaded, all imports resolved OK");
 
+let _settingsMigrationPromise = null;
+let _localCursorProfileSyncSerial = 0;
+
+function ensureSettingsMigration() {
+    if (!_settingsMigrationPromise) {
+        let succeeded = false;
+        const attempt = migrateSettings({ includeWorld: false })
+            .then(result => {
+                succeeded = true;
+                return result;
+            })
+            .catch(error => {
+                console.error(`${MODULE_ID} | Settings migration failed:`, error);
+                return undefined;
+            });
+        const tracked = attempt.finally(() => {
+            // Keep successful migration cached, but allow a transient storage
+            // failure to retry at ready or the next canvasReady in this client.
+            if (!succeeded && _settingsMigrationPromise === tracked) _settingsMigrationPromise = null;
+        });
+        _settingsMigrationPromise = tracked;
+    }
+    return _settingsMigrationPromise;
+}
+
+function installPrivacyWrapper() {
+    try {
+        installCursorPrivacyBroadcastWrapper({
+            isPrivateMode: isCursorPrivateMode,
+            emitHiddenPing: broadcastHiddenPing
+        });
+    } catch (error) {
+        console.error(`${MODULE_ID} | Cursor privacy broadcast wrapper install failed:`, error);
+    }
+}
+
 function syncMiddleMouseListener() {
     const hasMiddleMouseAction = getMiddleMouseActionMode() !== "off";
     const isClearOnEmptyEnabled = game.settings.get(MODULE_ID, "clear-targets-on-empty-click");
@@ -51,9 +89,14 @@ function isLocalCursorHidden() {
 }
 
 async function syncLocalCursorProfile() {
+    const syncId = ++_localCursorProfileSyncSerial;
     const config = getUserCursorConfig(game.user);
     await applyCursorStyles(config.useCustomCursor);
-    if (config.useCustomCursor) setupCursorStateListeners();
+    // Cursor image work is asynchronous. Only the newest profile sync may
+    // change listeners or sharing after its style application settles.
+    if (syncId !== _localCursorProfileSyncSerial) return;
+    const currentConfig = getUserCursorConfig(game.user);
+    if (currentConfig.useCustomCursor) setupCursorStateListeners();
     else cleanupCursorStateListeners();
     refreshSharedCursorImage();
 }
@@ -195,7 +238,30 @@ Hooks.once('init', () => {
     }
 });
 
-Hooks.on('canvasReady', () => {
+// Foundry's first canvasReady fires before ready. Install the native broadcast
+// filter at setup and start migration immediately so legacy private mode is
+// protected during that startup window.
+Hooks.once('setup', () => {
+    installPrivacyWrapper();
+    void ensureSettingsMigration();
+});
+
+Hooks.on('canvasReady', async (readyCanvas) => {
+    const readySceneId = readyCanvas?.scene?.id ?? null;
+    const readyLevelId = readyCanvas?.level?.id ?? null;
+    // Retry in case the User class was not exposed yet during setup. The
+    // installer is idempotent once either wrapper path succeeds.
+    installPrivacyWrapper();
+    await ensureSettingsMigration();
+    // Hook callbacks are not awaited by Foundry. If a scene switch occurred
+    // while migration was pending, leave initialization to the newer hook.
+    if (
+        canvas !== readyCanvas
+        || !readyCanvas?.ready
+        || (readyCanvas.scene?.id ?? null) !== readySceneId
+        || (readyCanvas.level?.id ?? null) !== readyLevelId
+    ) return;
+
     syncOverlaySettingsFromStore();
 
     syncMiddleMouseListener();
@@ -206,7 +272,7 @@ Hooks.on('canvasReady', () => {
     }
 
     const isSharingEnabled = isCursorBroadcastEnabled();
-    debugLog("sharing", "canvasReady: cursor-sharing-mode =", game.settings.get(MODULE_ID, "cursor-sharing-mode"));
+    debugLog("sharing", "canvasReady: cursor-sharing-mode =", getCursorSharingMode());
     debugLog("sharing", "canvasReady: calling initCursorOverlay + startCursorSharing");
     initCursorOverlay();
     startCursorSharing(isSharingEnabled && !isLocalCursorHidden());
@@ -216,6 +282,9 @@ Hooks.on('canvasReady', () => {
 });
 
 Hooks.on('canvasTearDown', () => {
+    // Invalidate profile work that may still be awaiting image rasterization so
+    // it cannot reattach DOM/state listeners after this canvas is gone.
+    _localCursorProfileSyncSerial += 1;
     const safely = (label, fn) => {
         try {
             fn();
@@ -245,25 +314,19 @@ Hooks.on('userConnected', (user, connected) => {
 
 Hooks.once('ready', async () => {
     try {
+        installPrivacyWrapper();
+        await ensureSettingsMigration();
+
         try {
-            await migrateSettings();
+            await migrateWorldSettings();
         } catch (e) {
-            console.error(`${MODULE_ID} | Settings migration failed:`, e);
+            console.warn(`${MODULE_ID} | Legacy world-setting migration failed:`, e);
         }
 
         try {
             await migrateLegacyUserCursorConfig(game.user);
         } catch (e) {
             console.warn(`${MODULE_ID} | Legacy cursor profile migration failed:`, e);
-        }
-
-        try {
-            installCursorPrivacyBroadcastWrapper({
-                isPrivateMode: isCursorPrivateMode,
-                emitHiddenPing: broadcastHiddenPing
-            });
-        } catch (e) {
-            console.error(`${MODULE_ID} | Cursor privacy broadcast wrapper install failed:`, e);
         }
 
         try {

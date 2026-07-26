@@ -123,7 +123,8 @@ export function installCursorPrivacyBroadcastWrapper({
     isPrivateMode,
     emitHiddenPing
 } = {}) {
-    const proto = globalThis.game?.user?.constructor?.prototype;
+    const proto = globalThis.foundry?.documents?.User?.prototype
+        ?? globalThis.game?.user?.constructor?.prototype;
     const libWrapper = globalThis.libWrapper;
 
     _isPrivateMode = typeof isPrivateMode === "function" ? isPrivateMode : _isPrivateMode;
