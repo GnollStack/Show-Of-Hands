@@ -83,6 +83,24 @@ export class AdvancedSettingsApp extends foundry.applications.api.HandlebarsAppl
         };
     }
 
+    _onRender(context, options) {
+        super._onRender(context, options);
+        const windowOptions = options?.window;
+        const isMovingWindow = !!(windowOptions?.detach || windowOptions?.attach)
+            || Object.prototype.hasOwnProperty.call(windowOptions ?? {}, "detached");
+        if (isMovingWindow) return;
+
+        const slider = this.element.querySelector('#ttb-shared-cursor-opacity');
+        const output = this.element.querySelector('.ttb-shared-cursor-opacity-value');
+        if (!slider || !output) return;
+
+        const updateOpacityOutput = () => {
+            output.textContent = slider.value;
+        };
+        slider.addEventListener('input', updateOpacityOutput);
+        updateOpacityOutput();
+    }
+
     static async #onCopyDiagnostics(event) {
         event.preventDefault();
         const diagnostics = this.element.querySelector('.ttb-diagnostics-output')?.value ?? getDiagnosticsText();

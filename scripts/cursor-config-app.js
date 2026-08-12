@@ -5,7 +5,7 @@
  */
 
 import { MODULE_ID, CURSOR_POINTER_SIZE, CURSOR_SIZE_MAX, CURSOR_SOURCE_HOTSPOT_MAX, CURSOR_STATE_KEYS, CURSOR_STATE_DETAILS, NAME_POSITION_PRESETS, NAME_LABEL_OFFSET_SCALE, debugLog } from './constants.js';
-import { getDefaultCursorStates, getDefaultUserCursorConfig, getUserCursorConfig, setUserCursorConfig, summarizeCursorConfigForLog } from './settings.js';
+import { getDefaultUserCursorConfig, getUserCursorConfig, setUserCursorConfig, summarizeCursorConfigForLog } from './settings.js';
 import { applyCursorStyles } from './cursor-styles.js';
 import { refreshSharedCursorImage } from './cursor-sharing.js';
 import { computeCursorPreviewGeometry, computeCursorSourceHotspotBounds } from './cursor-geometry-core.js';
@@ -24,15 +24,21 @@ function escapeHtml(value) {
     }[match]));
 }
 
-async function confirmCursorProfileAction({ title, content, fallback }) {
+async function confirmCursorProfileAction({
+    title,
+    content,
+    fallback,
+    yesLabel = "Confirm",
+    noLabel = "Cancel"
+}) {
     const DialogV2 = foundry.applications.api?.DialogV2;
     if (DialogV2?.confirm) {
         try {
             return !!(await DialogV2.confirm({
                 window: { title },
                 content,
-                yes: { label: "Confirm" },
-                no: { label: "Cancel" },
+                yes: { label: yesLabel },
+                no: { label: noLabel },
                 rejectClose: false,
                 modal: true
             }));
@@ -44,6 +50,64 @@ async function confirmCursorProfileAction({ title, content, fallback }) {
     return window.confirm(fallback);
 }
 
+function clampCursorDimension(value, min = 1, max = CURSOR_SIZE_MAX) {
+    const number = Math.round(Number(value));
+    if (!Number.isFinite(number)) return min;
+    return Math.min(max, Math.max(min, number));
+}
+
+/**
+ * Resolve the width/height pair produced by an aspect-ratio-locked edit.
+ *
+ * Keep both controls valid while preserving the requested ratio as closely as
+ * integer dimensions inside the UI bounds allow. For ratios wider or taller
+ * than the complete range can express, clamp to the closest valid edge pair
+ * instead of leaving either form control invalid.
+ */
+export function computeRatioLockedDimensions({
+    driver = "width",
+    value,
+    ratio,
+    min = 1,
+    max = CURSOR_SIZE_MAX
+} = {}) {
+    const safeMin = Math.max(1, Math.round(Number(min)) || 1);
+    const safeMax = Math.max(safeMin, Math.round(Number(max)) || CURSOR_SIZE_MAX);
+    const safeRatio = Number.isFinite(Number(ratio)) && Number(ratio) > 0
+        ? Number(ratio)
+        : 1;
+    const driven = clampCursorDimension(value, safeMin, safeMax);
+    let width = driver === "height" ? driven * safeRatio : driven;
+    let height = driver === "height" ? driven : driven / safeRatio;
+
+    const downScale = Math.min(1, safeMax / width, safeMax / height);
+    width *= downScale;
+    height *= downScale;
+
+    const upScale = Math.max(1, safeMin / width, safeMin / height);
+    if (width * upScale <= safeMax && height * upScale <= safeMax) {
+        width *= upScale;
+        height *= upScale;
+    }
+
+    return {
+        width: clampCursorDimension(width, safeMin, safeMax),
+        height: clampCursorDimension(height, safeMin, safeMax)
+    };
+}
+
+/** Resolve the ratio represented by the current preview geometry. */
+export function getCursorAspectRatio({ width, height, naturalWidth, naturalHeight } = {}) {
+    const configuredWidth = Number(width);
+    const configuredHeight = Number(height);
+    const sourceWidth = Number(naturalWidth);
+    const sourceHeight = Number(naturalHeight);
+
+    if (configuredWidth > 0 && configuredHeight > 0) return configuredWidth / configuredHeight;
+    if (sourceWidth > 0 && sourceHeight > 0) return sourceWidth / sourceHeight;
+    return 1;
+}
+
 export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicationMixin(
     foundry.applications.api.ApplicationV2
 ) {
@@ -52,7 +116,10 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
         tag: "form",
         form: {
             handler: CursorConfigApp.#onSubmit,
-            closeOnSubmit: true
+            // Close explicitly only after persistence and local refresh succeed.
+            // ApplicationV2 otherwise closes after any normally resolved handler,
+            // including a caught flag-write failure.
+            closeOnSubmit: false
         },
         actions: {
             browseCursorImage: CursorConfigApp.#onBrowseCursorImage,
@@ -435,6 +502,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
             callback: (path) => {
                 debugLog("config", `FilePicker callback: selected path="${path}"`);
                 CursorConfigApp.#updateStateImage(section, path);
+                this._formDirty = true;
             }
         });
         fp.browse();
@@ -459,36 +527,121 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
         event.preventDefault();
         const section = CursorConfigApp.#getStateSection(target);
         CursorConfigApp.#applyStateImageReset(section, { image: "", hotspotX: 0, hotspotY: 0 });
+        this._formDirty = true;
     }
 
     static #onResetAll(event) {
         event.preventDefault();
-        const defaults = getDefaultCursorStates();
+        const profileDefaults = getDefaultUserCursorConfig();
+        const defaults = profileDefaults.cursorStates;
         CURSOR_STATE_KEYS.forEach(key => {
             const section = this.element.querySelector(`.ttb-tab-content[data-tab="${key}"]`);
             CursorConfigApp.#resetStateSection(section, defaults[key]);
         });
-        ui.notifications.info("Reset to defaults.");
+
+        const customCursorToggle = this.element.querySelector('input[name="useCustomCursor"]');
+        if (customCursorToggle) customCursorToggle.checked = profileDefaults.useCustomCursor;
+
+        const defaultSection = this.element.querySelector('.ttb-tab-content[data-tab="default"]');
+        const previewContainer = defaultSection?.querySelector('.ttb-preview-container');
+        const hiddenX = previewContainer?.querySelector('input[name="nameOffsetX"]');
+        const hiddenY = previewContainer?.querySelector('input[name="nameOffsetY"]');
+        const hiddenPos = previewContainer?.querySelector('input[name="namePosition"]');
+        if (hiddenX) hiddenX.value = profileDefaults.nameOffset.x;
+        if (hiddenY) hiddenY.value = profileDefaults.nameOffset.y;
+        if (hiddenPos) hiddenPos.value = profileDefaults.namePosition;
+        CursorConfigApp.#setActiveNamePreset(previewContainer, profileDefaults.namePosition);
+        CursorConfigApp.#positionNameLabel(
+            defaultSection,
+            profileDefaults.namePosition,
+            profileDefaults.nameOffset.x,
+            profileDefaults.nameOffset.y
+        );
+
+        this._formDirty = true;
+        ui.notifications.info("Reset all cursor profile fields to defaults. Save to apply.");
     }
 
     static #onSetNamePreset(event, target) {
         event.preventDefault();
         const defaultSection = target.closest('.ttb-tab-content[data-tab="default"]');
         CursorConfigApp.#applyNamePreset(defaultSection, target.dataset.preset);
+        this._formDirty = true;
     }
 
     _onRender(context, options) {
         super._onRender(context, options);
+        // V14 detach/attach renders move the existing Application element
+        // without replacing its Handlebars content. Its listeners and dirty
+        // form state therefore remain valid and must not be reset or rebound.
+        const windowOptions = options?.window;
+        const isMovingWindow = !!(windowOptions?.detach || windowOptions?.attach)
+            || Object.prototype.hasOwnProperty.call(windowOptions ?? {}, "detached");
+        if (isMovingWindow) return;
+
         const html = this.element;
+        this._formDirty = false;
 
         const userSelect = html.querySelector('.ttb-user-select');
         if (userSelect) {
-            userSelect.addEventListener('change', (e) => {
+            userSelect.addEventListener('change', async (e) => {
                 e.preventDefault();
-                this.targetUserId = userSelect.value || game.user.id;
+                const currentUserId = this.targetUserId;
+                const nextUserId = userSelect.value || game.user.id;
+                if (nextUserId === currentUserId) return;
+                const nextUser = game.users.get(nextUserId);
+                if (!nextUser) {
+                    userSelect.value = currentUserId;
+                    return;
+                }
+                if (this._targetSwitchPending) {
+                    userSelect.value = currentUserId;
+                    return;
+                }
+
+                userSelect.value = currentUserId;
+                if (this._formDirty) {
+                    const currentUser = game.users.get(currentUserId) ?? game.user;
+
+                    this._targetSwitchPending = true;
+                    userSelect.disabled = true;
+                    let confirmed = false;
+                    try {
+                        confirmed = await confirmCursorProfileAction({
+                            title: "Discard Unsaved Cursor Changes?",
+                            content: `<p>Discard unsaved changes for <strong>${escapeHtml(currentUser.name)}</strong> and switch to <strong>${escapeHtml(nextUser.name)}</strong>?</p>`,
+                            fallback: `Discard unsaved changes for ${currentUser.name} and switch to ${nextUser.name}?`,
+                            yesLabel: "Discard & Switch",
+                            noLabel: "Keep Editing"
+                        });
+                    } finally {
+                        this._targetSwitchPending = false;
+                        userSelect.disabled = false;
+                    }
+                    if (!confirmed) return;
+                }
+
+                this._formDirty = false;
+                this.targetUserId = nextUserId;
                 this.render({ force: true });
             });
         }
+
+        this._markDirtyAbortController?.abort();
+        const AbortControllerClass = html.ownerDocument?.defaultView?.AbortController ?? globalThis.AbortController;
+        this._markDirtyAbortController = typeof AbortControllerClass === "function"
+            ? new AbortControllerClass()
+            : null;
+        const markDirty = (event) => {
+            const target = event.target;
+            if (!target?.name || target === userSelect) return;
+            this._formDirty = true;
+        };
+        const listenerOptions = this._markDirtyAbortController
+            ? { signal: this._markDirtyAbortController.signal }
+            : undefined;
+        html.addEventListener('input', markDirty, listenerOptions);
+        html.addEventListener('change', markDirty, listenerOptions);
 
         this.#setupStateControls(html);
         this.#setupNameLabelDrag(html);
@@ -519,9 +672,12 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
                     ratioBtn.setAttribute('aria-pressed', ratioLocked ? 'true' : 'false');
                     if (ratioLocked) {
                         // If fields are blank, use the image's natural ratio.
-                        const w = parseInt(wInput?.value) || previewImg?.naturalWidth || 1;
-                        const h = parseInt(hInput?.value) || previewImg?.naturalHeight || 1;
-                        lockedRatio = w / h;
+                        lockedRatio = getCursorAspectRatio({
+                            width: wInput?.value,
+                            height: hInput?.value,
+                            naturalWidth: previewImg?.naturalWidth,
+                            naturalHeight: previewImg?.naturalHeight
+                        });
                     }
                 });
             }
@@ -531,7 +687,15 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
                 wInput.addEventListener('input', () => {
                     if (ratioLocked && hInput) {
                         const w = parseInt(wInput.value);
-                        if (w > 0) hInput.value = Math.round(w / lockedRatio);
+                        if (Number.isFinite(w)) {
+                            const dimensions = computeRatioLockedDimensions({
+                                driver: "width",
+                                value: w,
+                                ratio: lockedRatio
+                            });
+                            wInput.value = dimensions.width;
+                            hInput.value = dimensions.height;
+                        }
                     }
                     updatePreview();
                 });
@@ -542,7 +706,15 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
                 hInput.addEventListener('input', () => {
                     if (ratioLocked && wInput) {
                         const h = parseInt(hInput.value);
-                        if (h > 0) wInput.value = Math.round(h * lockedRatio);
+                        if (Number.isFinite(h)) {
+                            const dimensions = computeRatioLockedDimensions({
+                                driver: "height",
+                                value: h,
+                                ratio: lockedRatio
+                            });
+                            wInput.value = dimensions.width;
+                            hInput.value = dimensions.height;
+                        }
                     }
                     updatePreview();
                 });
@@ -552,7 +724,17 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
                 imageInput.addEventListener('change', () => CursorConfigApp.#updateStateImage(section, imageInput.value));
             }
             if (previewImg) {
-                previewImg.addEventListener('load', updatePreview);
+                previewImg.addEventListener('load', () => {
+                    if (ratioLocked) {
+                        lockedRatio = getCursorAspectRatio({
+                            width: wInput?.value,
+                            height: hInput?.value,
+                            naturalWidth: previewImg.naturalWidth,
+                            naturalHeight: previewImg.naturalHeight
+                        });
+                    }
+                    updatePreview();
+                });
                 previewImg.addEventListener('error', updatePreview);
             }
             if (xSlider) xSlider.addEventListener('input', updatePreview);
@@ -605,6 +787,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
             hiddenY.value = Math.round(offsetY * 100) / 100;
             hiddenPos.value = "custom";
             CursorConfigApp.#setActiveNamePreset(previewContainer, "custom");
+            this._formDirty = true;
         };
 
         // Mouse drag path.
@@ -692,6 +875,8 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
 
     _onClose(options) {
         this._cleanupDragListeners();
+        this._markDirtyAbortController?.abort();
+        this._markDirtyAbortController = null;
         super._onClose(options);
     }
 
@@ -748,5 +933,6 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
         }
 
         ui.notifications.info(`Cursor configuration saved for ${targetUser.name}!`);
+        await this.close({ submitted: true });
     }
 }

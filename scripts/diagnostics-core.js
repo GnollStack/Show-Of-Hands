@@ -1,5 +1,5 @@
 import { CURSOR_SIZE_MAX, CURSOR_SOURCE_HOTSPOT_MAX, CURSOR_STATE_KEYS } from './constants.js';
-import { SETTING_CHOICES, SETTING_KEYS, SETTING_RANGES } from './settings.js';
+import { SETTING_CHOICES, SETTING_DEFINITIONS, SETTING_KEYS, SETTING_RANGES } from './settings.js';
 import { normalizeRect, rectIntersectsBounds, computeMarqueeTargetUpdate } from './marquee-core.js';
 import { computeCursorDisplaySize, computeCursorPreviewGeometry, computeResizeOutput, computeRotationOutput, computeOverlayNamePlacement, stepCursorLerp } from './cursor-geometry-core.js';
 
@@ -421,6 +421,19 @@ export function validateSettingsSnapshot(snapshot) {
         }
     }
 
+    for (const definition of SETTING_DEFINITIONS) {
+        const { key, type } = definition;
+        if (!Object.prototype.hasOwnProperty.call(snapshot, key)) continue;
+        const value = snapshot[key];
+        if (type === Boolean && typeof value !== "boolean") {
+            errors.push(`${key} must be a boolean.`);
+        } else if (type === Number && !isFiniteNumber(value)) {
+            errors.push(`${key} must be a finite number.`);
+        } else if (type === Object && key !== "hidden-shared-cursor-users" && !isPlainObject(value)) {
+            errors.push(`${key} must be an object.`);
+        }
+    }
+
     for (const [key, range] of Object.entries(SETTING_RANGES)) {
         if (!Object.prototype.hasOwnProperty.call(snapshot, key)) continue;
         const value = snapshot[key];
@@ -431,12 +444,6 @@ export function validateSettingsSnapshot(snapshot) {
 
     if (!isPlainObject(snapshot["hidden-shared-cursor-users"])) {
         warnings.push("hidden-shared-cursor-users is not an object; legacy values are tolerated but should migrate on save.");
-    }
-
-    for (const key of ["enableMcpDiagnostics"]) {
-        if (Object.prototype.hasOwnProperty.call(snapshot, key) && typeof snapshot[key] !== "boolean") {
-            errors.push(`${key} must be a boolean.`);
-        }
     }
 
     return { valid: errors.length === 0, errors, warnings };

@@ -48,6 +48,17 @@ export const CURSOR_CLICKABLE_SELECTOR = Object.freeze([
     ".window-app .rollable"
 ]).join(", ");
 
+// Clickable-looking elements which must keep the surrounding/default cursor.
+// This selector is shared by CSS hover styling and Pressed/Held detection so
+// inactive controls cannot advertise an interaction in one state but not the
+// other. The ARIA case covers custom controls which cannot use native disabled.
+export const CURSOR_INACTIVE_SELECTOR = Object.freeze([
+    ":disabled",
+    "[disabled]",
+    "[readonly]",
+    "[aria-disabled='true']"
+]).join(", ");
+
 // Elements whose native cursor should progress from grab to grabbing. Keep
 // this shared with held-state detection so Pressed/Held never masks dragging.
 export const CURSOR_DRAGGABLE_SELECTOR = Object.freeze([

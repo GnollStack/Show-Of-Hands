@@ -76,6 +76,7 @@ test('held cursor state tracks primary presses and clears on release, cancel, bl
         off: (type, handler) => hookEvents.remove(type, handler)
     };
     globalThis.canvas = {
+        mouseInteractionManager: { options: { dragResistance: 10 } },
         app: {
             stage: {
                 on: (type, handler) => stageEvents.add(type, handler),
@@ -93,6 +94,22 @@ test('held cursor state tracks primary presses and clears on release, cancel, bl
     try {
         const { cleanupCursorStateListeners, setupCursorStateListeners } = await import('../scripts/state-detection.js');
         setupCursorStateListeners();
+
+        assert.equal(hookEvents.listeners.has("activateSceneControls"), true);
+        globalThis.game.activeTool = "target";
+        hookEvents.listeners.get("activateSceneControls")();
+        assert.equal(
+            board.classList.contains("ttb-cursor-targeting"),
+            true,
+            "same-control V14 tool activation must enable the targeting cursor"
+        );
+        globalThis.game.activeTool = "select";
+        hookEvents.listeners.get("activateSceneControls")();
+        assert.equal(
+            board.classList.contains("ttb-cursor-targeting"),
+            false,
+            "same-control V14 tool activation must clear the targeting cursor"
+        );
 
         const clickableTarget = {
             ownerDocument: globalThis.document,
@@ -151,7 +168,7 @@ test('held cursor state tracks primary presses and clears on release, cancel, bl
         });
         assert.equal(body.classList.contains("ttb-cursor-click"), false, "drag sources retain grab/grabbing priority");
 
-        for (const inactiveState of [':disabled', '[readonly]']) {
+        for (const inactiveState of [':disabled', '[disabled]', '[readonly]', "[aria-disabled='true']"]) {
             const inactiveTarget = {
                 ownerDocument: globalThis.document,
                 matches: selector => selector.includes(inactiveState),
@@ -170,9 +187,68 @@ test('held cursor state tracks primary presses and clears on release, cancel, bl
             );
         }
 
+        const panningEvent = (pointerId, x, y, button = 2, buttons) => ({
+            pointerId,
+            button,
+            ...(buttons === undefined ? {} : { buttons }),
+            global: { x, y },
+            originalEvent: { pointerId, button, ...(buttons === undefined ? {} : { buttons }) }
+        });
+        stageEvents.listeners.get("pointerdown")(panningEvent(40, 10, 10));
+        assert.equal(
+            board.classList.contains("ttb-cursor-panning"),
+            false,
+            "right-button down alone is not yet a panning drag"
+        );
+        stageEvents.listeners.get("pointermove")(panningEvent(41, 30, 10, -1));
+        stageEvents.listeners.get("pointermove")(panningEvent(40, 19, 10, -1));
+        assert.equal(
+            board.classList.contains("ttb-cursor-panning"),
+            false,
+            "another pointer and movement below Foundry drag resistance must not start panning"
+        );
+        stageEvents.listeners.get("pointermove")(panningEvent(40, 20, 10, -1));
+        assert.equal(
+            board.classList.contains("ttb-cursor-panning"),
+            true,
+            "crossing Foundry drag resistance starts the panning cursor"
+        );
+        stageEvents.listeners.get("pointerup")(panningEvent(41, 20, 10));
+        assert.equal(
+            board.classList.contains("ttb-cursor-panning"),
+            true,
+            "another pointer cannot end the panning cursor"
+        );
+        stageEvents.listeners.get("pointerup")(panningEvent(40, 20, 10));
+        assert.equal(board.classList.contains("ttb-cursor-panning"), false);
+
+        stageEvents.listeners.get("pointerdown")(panningEvent(42, 0, 0));
+        stageEvents.listeners.get("pointerup")(panningEvent(42, 0, 0));
+        assert.equal(
+            board.classList.contains("ttb-cursor-panning"),
+            false,
+            "a plain right-click never enters panning"
+        );
+
+        stageEvents.listeners.get("pointerdown")(panningEvent(44, 0, 0, 2, 2));
+        stageEvents.listeners.get("pointermove")(panningEvent(44, 20, 0, -1, 0));
+        assert.equal(
+            board.classList.contains("ttb-cursor-panning"),
+            false,
+            "a move proving the secondary button is released disarms a lost-release gesture"
+        );
+        stageEvents.listeners.get("pointermove")(panningEvent(44, 30, 0, -1, 0));
+        assert.equal(board.classList.contains("ttb-cursor-panning"), false);
+
+        stageEvents.listeners.get("pointerdown")(panningEvent(43, 0, 0));
+        stageEvents.listeners.get("pointermove")(panningEvent(43, 10, 0, -1));
+        assert.equal(board.classList.contains("ttb-cursor-panning"), true);
         windowEvents.listeners.get("blur")();
         assert.equal(body.classList.contains("ttb-cursor-click"), false);
         assert.equal(board.classList.contains("ttb-cursor-click"), false);
+        assert.equal(board.classList.contains("ttb-cursor-panning"), false, "blur clears an active panning drag");
+        stageEvents.listeners.get("pointermove")(panningEvent(43, 20, 0, -1));
+        assert.equal(board.classList.contains("ttb-cursor-panning"), false, "blur also drops panning pointer ownership");
 
         // V14 pop-out documents receive the same held lifecycle and restore
         // Foundry's inline depressed cursor on cancellation.
@@ -238,7 +314,9 @@ test('held cursor state tracks primary presses and clears on release, cancel, bl
         assert.equal(documentEvents.listeners.has("pointercancel"), false);
         assert.equal(windowEvents.listeners.has("blur"), false);
         assert.equal(stageEvents.listeners.has("pointerdown"), false, "cleanup must detach from the originally registered stage");
+        assert.equal(stageEvents.listeners.has("pointermove"), false);
         assert.equal(stageEvents.listeners.has("pointercancel"), false);
+        assert.equal(hookEvents.listeners.has("activateSceneControls"), false);
         assert.equal(replacementStageEvents.listeners.size, 0, "cleanup must not touch a replacement stage");
     } finally {
         globalThis.document = previous.document;

@@ -1,14 +1,25 @@
-import { CURSOR_CLICKABLE_SELECTOR, CURSOR_DRAGGABLE_SELECTOR, debugLog } from './constants.js';
+import {
+    CURSOR_CLICKABLE_SELECTOR,
+    CURSOR_DRAGGABLE_SELECTOR,
+    CURSOR_INACTIVE_SELECTOR,
+    debugLog
+} from './constants.js';
 import { getUserCursorConfig } from './settings.js';
 
 let _stateListenersActive = false;
 let _panningHandler = null;
+let _panningMoveHandler = null;
 let _panningUpHandler = null;
 let _stage = null;
 let _board = null;
 let _pressedPointerId = null;
 let _pressedDocument = null;
+let _panningPointerId = null;
+let _panningStartX = 0;
+let _panningStartY = 0;
 const _boundDocuments = new Map();
+const FALLBACK_MOUSE_POINTER_ID = "mouse";
+const DEFAULT_PANNING_DRAG_RESISTANCE_PX = 10;
 
 function _getBoard() {
     if (!_board?.isConnected) _board = document.getElementById("board");
@@ -31,7 +42,7 @@ function _getClosest(target, selector) {
 function _getPressedUiTarget(target) {
     const clickable = _getClosest(target, CURSOR_CLICKABLE_SELECTOR);
     if (!clickable) return null;
-    if (clickable.matches?.(":disabled, [readonly]")) return null;
+    if (clickable.matches?.(CURSOR_INACTIVE_SELECTOR)) return null;
 
     // When the closest drag source is the same node, or sits inside a broader
     // clickable row, Foundry's grab -> grabbing state owns the interaction. A
@@ -43,6 +54,37 @@ function _getPressedUiTarget(target) {
 
 function _getEventDocument(event) {
     return event?.target?.ownerDocument ?? null;
+}
+
+function _getEventPointerId(event) {
+    return event?.pointerId ?? event?.originalEvent?.pointerId ?? FALLBACK_MOUSE_POINTER_ID;
+}
+
+function _getEventButton(event) {
+    return event?.originalEvent?.button ?? event?.button ?? null;
+}
+
+function _getEventButtons(event) {
+    const buttons = Number(event?.originalEvent?.buttons ?? event?.buttons);
+    return Number.isFinite(buttons) ? buttons : null;
+}
+
+function _getEventGlobalPoint(event) {
+    const x = Number(event?.global?.x);
+    const y = Number(event?.global?.y);
+    return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+}
+
+function _getPanningDragResistance() {
+    const configured = Number(canvas?.mouseInteractionManager?.options?.dragResistance);
+    if (Number.isFinite(configured) && configured > 0) return configured;
+
+    const nativeDefault = Number(
+        globalThis.foundry?.canvas?.interaction?.MouseInteractionManager?.DEFAULT_DRAG_RESISTANCE_PX
+    );
+    return Number.isFinite(nativeDefault) && nativeDefault > 0
+        ? nativeDefault
+        : DEFAULT_PANNING_DRAG_RESISTANCE_PX;
 }
 
 function _getDocumentWindow(doc) {
@@ -157,9 +199,57 @@ function _clearPanningState() {
     _logCursorState();
 }
 
+function _resetPanningGesture(event = null) {
+    if (
+        event
+        && _panningPointerId !== null
+        && _getEventPointerId(event) !== _panningPointerId
+    ) return false;
+
+    _panningPointerId = null;
+    _panningStartX = 0;
+    _panningStartY = 0;
+    _clearPanningState();
+    return true;
+}
+
+function _onPanningPointerDown(event) {
+    if (_getEventButton(event) !== 2) return;
+
+    const point = _getEventGlobalPoint(event);
+    if (!point) return;
+
+    // A new right press supersedes a lost prior release, but does not become a
+    // panning gesture until it crosses Foundry's screen-space drag resistance.
+    _resetPanningGesture();
+    _panningPointerId = _getEventPointerId(event);
+    _panningStartX = point.x;
+    _panningStartY = point.y;
+}
+
+function _onPanningPointerMove(event) {
+    if (_panningPointerId === null || _getEventPointerId(event) !== _panningPointerId) return;
+    const buttons = _getEventButtons(event);
+    if (buttons !== null && (buttons & 2) === 0) {
+        _resetPanningGesture(event);
+        return;
+    }
+    const board = _getBoard();
+    if (board?.classList.contains("ttb-cursor-panning")) return;
+
+    const point = _getEventGlobalPoint(event);
+    if (!point) return;
+    const distance = Math.hypot(point.x - _panningStartX, point.y - _panningStartY);
+    if (distance < _getPanningDragResistance()) return;
+
+    debugLog("states", "panning: RIGHT-DRAG START -> adding ttb-cursor-panning class");
+    board?.classList.add("ttb-cursor-panning");
+    _logCursorState();
+}
+
 function _onWindowBlur() {
     _clearPressedState(null, { restoreFoundry: true, restoreAll: true });
-    _clearPanningState();
+    _resetPanningGesture();
 }
 
 function _bindHeldDocument(doc) {
@@ -223,10 +313,10 @@ function _onHoverToken(_token, isHovering) {
     _logCursorState();
 }
 
-function _onRenderSceneControls() {
+function _syncTargetingState() {
     const activeTool = game.activeTool ?? ui.controls?.tool?.name ?? ui.controls?.activeTool ?? ui.controls?.tool;
     const isTargeting = activeTool === "target";
-    debugLog("states", `renderSceneControls fired: activeTool="${activeTool}", isTargeting=${isTargeting}`);
+    debugLog("states", `Scene controls changed: activeTool="${activeTool}", isTargeting=${isTargeting}`);
     _getBoard()?.classList.toggle("ttb-cursor-targeting", isTargeting);
     _logCursorState();
 }
@@ -237,10 +327,13 @@ export function setupCursorStateListeners() {
     debugLog("states", "setupCursorStateListeners: registering state detection hooks");
 
     Hooks.on("hoverToken", _onHoverToken);
-    Hooks.on("renderSceneControls", _onRenderSceneControls);
+    Hooks.on("renderSceneControls", _syncTargetingState);
+    // V14 changes tools within the active control set through activate() without
+    // rendering SceneControls, so render alone cannot keep this class current.
+    Hooks.on("activateSceneControls", _syncTargetingState);
     Hooks.on("openDetachedWindow", _onOpenDetachedWindow);
     Hooks.on("closeDetachedWindow", _onCloseDetachedWindow);
-    _onRenderSceneControls();
+    _syncTargetingState();
 
     // Capture release/cancel in both the workspace and V14 detached windows so
     // the held state survives leaving its control without becoming stuck.
@@ -249,16 +342,12 @@ export function setupCursorStateListeners() {
     const stage = canvas?.app?.stage;
     if (stage) {
         _stage = stage;
-        _panningHandler = (event) => {
-            if (event.originalEvent.button === 2) {
-                debugLog("states", "panning: RIGHT-CLICK DOWN -> adding ttb-cursor-panning class");
-                _getBoard()?.classList.add("ttb-cursor-panning");
-                _logCursorState();
-            }
-        };
-        _panningUpHandler = _clearPanningState;
+        _panningHandler = _onPanningPointerDown;
+        _panningMoveHandler = _onPanningPointerMove;
+        _panningUpHandler = _resetPanningGesture;
 
         stage.on("pointerdown", _panningHandler);
+        stage.on("pointermove", _panningMoveHandler);
         stage.on("pointerup", _panningUpHandler);
         stage.on("pointerupoutside", _panningUpHandler);
         stage.on("pointercancel", _panningUpHandler);
@@ -273,7 +362,8 @@ export function cleanupCursorStateListeners() {
     _stateListenersActive = false;
 
     Hooks.off("hoverToken", _onHoverToken);
-    Hooks.off("renderSceneControls", _onRenderSceneControls);
+    Hooks.off("renderSceneControls", _syncTargetingState);
+    Hooks.off("activateSceneControls", _syncTargetingState);
     Hooks.off("openDetachedWindow", _onOpenDetachedWindow);
     Hooks.off("closeDetachedWindow", _onCloseDetachedWindow);
 
@@ -285,15 +375,17 @@ export function cleanupCursorStateListeners() {
     const stage = _stage;
     if (stage && _panningHandler) {
         stage.off("pointerdown", _panningHandler);
+        stage.off("pointermove", _panningMoveHandler);
         stage.off("pointerup", _panningUpHandler);
         stage.off("pointerupoutside", _panningUpHandler);
         stage.off("pointercancel", _panningUpHandler);
     }
     _stage = null;
     _panningHandler = null;
+    _panningMoveHandler = null;
     _panningUpHandler = null;
 
-    _clearPanningState();
+    _resetPanningGesture();
     const board = _getBoard();
     if (board) {
         board.classList.remove("ttb-cursor-hover", "ttb-cursor-targeting", "ttb-cursor-panning", "ttb-cursor-click");

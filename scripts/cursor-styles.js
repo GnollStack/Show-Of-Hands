@@ -4,7 +4,15 @@
  * user's cursor profile.
  */
 
-import { CURSOR_CLICKABLE_SELECTOR, CURSOR_DRAGGABLE_SELECTOR, CURSOR_SIZE_MAX, MODULE_ID, STYLE_ID, debugLog } from './constants.js';
+import {
+    CURSOR_CLICKABLE_SELECTOR,
+    CURSOR_DRAGGABLE_SELECTOR,
+    CURSOR_INACTIVE_SELECTOR,
+    CURSOR_SIZE_MAX,
+    MODULE_ID,
+    STYLE_ID,
+    debugLog
+} from './constants.js';
 import { getUserCursorConfig } from './settings.js';
 import { computeCursorProcessingGeometry } from './cursor-geometry-core.js';
 
@@ -112,6 +120,14 @@ const RESIZE_SELECTOR = [
     ".application .window-resize-handle",
     "body.game .app .window-resizable-handle"
 ].join(", ");
+const ACTIVE_CLICKABLE_UI_SELECTOR = [
+    `:is(${CURSOR_CLICKABLE_SELECTOR})`,
+    `:not(:is(${CURSOR_INACTIVE_SELECTOR}))`,
+    // When the same element is both clickable and draggable, its grab cursor
+    // owns the interaction. A real nested button does not match this exclusion
+    // and therefore keeps the clickable cursor.
+    `:not(:is(${CURSOR_DRAGGABLE_SELECTOR}))`
+].join("");
 
 const ROOT_CURSOR_VARIABLES = [
     { key: "default", cssVar: "--cursor-default", fallback: "default", disabledFallback: "default" },
@@ -321,7 +337,7 @@ export async function applyCursorStyles(isEnabled) {
     }
 
     if (states.hover) {
-        cssParts.push(buildCursorRule(`body :is(${CURSOR_CLICKABLE_SELECTOR})`, "var(--cursor-pointer)"));
+        cssParts.push(buildCursorRule(`body ${ACTIVE_CLICKABLE_UI_SELECTOR}`, "var(--cursor-pointer)"));
         cssParts.push(buildCursorRule("#board.ttb-cursor-hover, #board.ttb-cursor-hover *", "var(--cursor-pointer)"));
     }
 

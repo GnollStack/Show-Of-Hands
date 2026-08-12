@@ -22,7 +22,7 @@ import { canBroadcastVisibleCursor, getShowCursorPermissionState } from '../scri
 import { getCursorSharingDebugState } from '../scripts/cursor-sharing.js';
 import { filterPrivateBroadcastActivity } from '../scripts/privacy-broadcast.js';
 import { isTokenIncludedInLevel, tokenMatchesMarqueeLevelFilter } from '../scripts/scene-levels.js';
-import { MARQUEE_LEVEL_FILTERS, SETTING_CHOICES, SETTING_KEYS, SETTING_RANGES, tokenMatchesMarqueeFilter } from '../scripts/settings.js';
+import { MARQUEE_LEVEL_FILTERS, SETTING_CHOICES, SETTING_DEFINITIONS, SETTING_KEYS, SETTING_RANGES, tokenMatchesMarqueeFilter } from '../scripts/settings.js';
 
 async function readFixture(name) {
     const text = await readFile(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
@@ -355,6 +355,70 @@ test('settings snapshot validation catches invalid choices', () => {
     });
     assert.equal(invalidLevelFilter.valid, false);
     assert.ok(invalidLevelFilter.errors.some(error => error.includes('marquee-level-filter')));
+});
+
+test('settings snapshot validation rejects malformed values for every Boolean and Number setting', () => {
+    const snapshot = Object.fromEntries(SETTING_DEFINITIONS.map(definition => {
+        const value = typeof definition.defaultValue === 'function'
+            ? definition.defaultValue()
+            : definition.defaultValue;
+        return [definition.key, value];
+    }));
+
+    for (const definition of SETTING_DEFINITIONS.filter(({ type }) => type === Boolean)) {
+        const result = validateSettingsSnapshot({
+            ...snapshot,
+            [definition.key]: 'false'
+        });
+        assert.equal(result.valid, false, `${definition.key} accepted a string as a Boolean`);
+        assert.ok(
+            result.errors.includes(`${definition.key} must be a boolean.`),
+            `${definition.key} did not report its Boolean type error`
+        );
+    }
+
+    for (const definition of SETTING_DEFINITIONS.filter(({ type }) => type === Number)) {
+        const result = validateSettingsSnapshot({
+            ...snapshot,
+            [definition.key]: 'not-a-number'
+        });
+        assert.equal(result.valid, false, `${definition.key} accepted a string as a Number`);
+        assert.ok(
+            result.errors.includes(`${definition.key} must be a finite number.`),
+            `${definition.key} did not report its Number type error`
+        );
+    }
+
+    const nonFinite = validateSettingsSnapshot({
+        ...snapshot,
+        'shared-cursor-opacity': Number.NaN
+    });
+    assert.equal(nonFinite.valid, false);
+    assert.ok(nonFinite.errors.includes('shared-cursor-opacity must be a finite number.'));
+});
+
+test('settings snapshot validation rejects malformed profile objects while tolerating the legacy hidden-user map', () => {
+    const snapshot = Object.fromEntries(SETTING_DEFINITIONS.map(definition => {
+        const value = typeof definition.defaultValue === 'function'
+            ? definition.defaultValue()
+            : definition.defaultValue;
+        return [definition.key, value];
+    }));
+
+    for (const key of ['cursor-states', 'cursor-name-offset']) {
+        for (const value of [null, [], 'invalid']) {
+            const result = validateSettingsSnapshot({ ...snapshot, [key]: value });
+            assert.equal(result.valid, false, `${key} accepted ${String(value)}`);
+            assert.ok(result.errors.includes(`${key} must be an object.`));
+        }
+    }
+
+    const legacyHiddenUsers = validateSettingsSnapshot({
+        ...snapshot,
+        'hidden-shared-cursor-users': 'legacy-invalid-value'
+    });
+    assert.equal(legacyHiddenUsers.valid, true);
+    assert.ok(legacyHiddenUsers.warnings.some(warning => warning.includes('hidden-shared-cursor-users')));
 });
 
 test('V14 runtime snapshot validation requires explicit contracts', () => {

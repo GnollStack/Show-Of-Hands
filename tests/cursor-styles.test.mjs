@@ -99,6 +99,20 @@ test('Pressed/Held maps both Foundry down variables without masking board draggi
         assert.doesNotMatch(css, /#board\.ttb-cursor-click/);
         assert.match(css, /body\.ttb-cursor-click[^}]*--cursor-pointer-down[^}]*!important/);
         assert.doesNotMatch(css, /body\.ttb-cursor-click[^}]*--cursor-grab-down/);
+        const hoverRule = css.split("\n").find(rule => (
+            rule.startsWith("body :is(") && rule.includes("var(--cursor-pointer)")
+        ));
+        assert.ok(hoverRule, "clickable UI hover rule is generated");
+        assert.match(
+            hoverRule,
+            /:not\(:is\(:disabled, \[disabled\], \[readonly\], \[aria-disabled='true'\]\)\)/,
+            "disabled and readonly controls are excluded from Hover"
+        );
+        assert.match(
+            hoverRule,
+            /:not\(:is\([^)]*\[draggable='true'\][^)]*\)\)/,
+            "a same-node drag source is excluded so Grab owns the cursor"
+        );
     } finally {
         globalThis.document = previous.document;
         globalThis.foundry = previous.foundry;

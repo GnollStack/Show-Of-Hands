@@ -171,7 +171,7 @@ Private mode also wraps native cursor activity so canvas pings do not reveal you
 
 The module overlay label is separate from Foundry's built-in cursor name. You can use preset positions or drag the label into a custom position in the Default tab of the Cursor Settings preview. Per-user positioning is synced to other clients.
 
-When **Show Shared Cursor Names (Overlay)** is enabled, the module automatically hides Foundry's default white cursor name while preserving the native color dot when applicable. This prevents duplicate name labels.
+When **Show Shared Cursor Names (Overlay)** is enabled, the module hides Foundry's default white cursor name only for peers who have an active Show of Hands overlay, while preserving the native color dot when applicable. Native-only and Receive Only peers keep their Foundry name, preventing both duplicate labels and anonymous dots.
 
 ### Built-In Foundry Cursor Elements
 
@@ -271,7 +271,7 @@ Automation creates temporary active-scene token fixtures named with the `SOH-MCP
 **Shared cursor name placement not behaving as expected:**
 
 - Enable **Show Shared Cursor Names (Overlay)** to see the module's movable label.
-- Foundry's default white cursor name is hidden automatically while the module overlay name is enabled.
+- Foundry's default white cursor name is hidden only when that peer has an active module overlay; native-only peers keep their Foundry label.
 - Use the Default tab in **Cursor Settings** to drag the overlay name label or choose a preset position.
 - Name placement uses the same fixed screen-space offsets in the preview and live overlay; changing a viewer's Shared Cursor Size scales the art without multiplying the saved label offset.
 

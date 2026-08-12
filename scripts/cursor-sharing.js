@@ -5,7 +5,13 @@
  */
 
 import { MODULE_ID, SOCKET_EVENT, SOCKET_MESSAGE_TYPES, CURSOR_SHARE_THROTTLE_MS, CURSOR_SIZE_MAX, debugLog } from './constants.js';
-import { updateRemoteCursor, updateRemoteCursorImage, removeRemoteCursor } from './cursor-overlay.js';
+import {
+    observeNativeCursorActivity,
+    removeRemoteCursor,
+    updateRemoteCursor,
+    updateRemoteCursorImage,
+    updateRemoteCursorUser
+} from './cursor-overlay.js';
 import { loadImage, getRotatedCursor } from './cursor-styles.js';
 import { computeResizeOutput } from './cursor-geometry-core.js';
 import { LatestValueRateLimiter } from './latest-value-rate-limiter.js';
@@ -579,6 +585,7 @@ function _onFoundryUserActivity(userId, activityData = {}) {
     const y = Number(cursor?.y);
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
 
+    observeNativeCursorActivity(userId, { x, y });
     updateRemoteCursor(userId, x, y, { source: "native" });
 }
 
@@ -594,6 +601,10 @@ function _removeCursorOutsideCurrentView(user) {
 function _onUserUpdated(user, change = {}) {
     const viewChanged = Object.prototype.hasOwnProperty.call(change, 'viewedScene') ||
         Object.prototype.hasOwnProperty.call(change, 'viewedLevel');
+    const identityChanged = Object.prototype.hasOwnProperty.call(change, 'name') ||
+        Object.prototype.hasOwnProperty.call(change, 'color');
+
+    if (user.id !== game.user.id && identityChanged) updateRemoteCursorUser(user.id);
     if (!viewChanged) return;
 
     if (user.id !== game.user.id) {

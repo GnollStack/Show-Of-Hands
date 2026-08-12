@@ -2,7 +2,7 @@
   "id": "show-of-hands",
   "title": "Show of Hands: Targeting & Cursors",
   "description": "Target tokens with middle-click, drag to marquee-select groups, and bring your table to life with immersive per-player custom cursors!",
-  "version": "14.2.0",
+  "version": "14.2.1",
   "compatibility": {
     "minimum": "14",
     "verified": "14.363"

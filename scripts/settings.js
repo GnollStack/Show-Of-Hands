@@ -285,7 +285,7 @@ export const SETTING_DEFINITIONS = Object.freeze([
     {
         key: "show-cursor-names",
         name: "Show Shared Cursor Names (Overlay)",
-        hint: "Display the module's movable shared-cursor name label next to remote cursors. When enabled, Foundry's default white cursor name is automatically hidden to avoid duplicate names.",
+        hint: "Display the module's movable shared-cursor name label next to remote cursors. Foundry's default white name is hidden only for peers with an active module overlay, avoiding duplicates without anonymizing native-only cursors.",
         scope: "client",
         config: true,
         type: Boolean,
@@ -314,7 +314,7 @@ export const SETTING_DEFINITIONS = Object.freeze([
     {
         key: "foundry-cursor-display",
         name: "Built-In Foundry Cursor Elements",
-        hint: "Control Foundry's own cursor name and color dot. If module overlay names are enabled, Foundry's default white name is suppressed automatically and this setting applies to the remaining native elements.",
+        hint: "Control Foundry's own cursor name and color dot. Module overlay names replace the native white name only for peers with an active module overlay; native-only peers continue to follow this setting.",
         scope: "client",
         config: true,
         type: String,
