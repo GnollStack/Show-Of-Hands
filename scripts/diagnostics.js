@@ -979,7 +979,18 @@ export function createDiagnostics({
         },
 
         runAutomation(args = {}) {
-            return runGatedMutationActionAsync("runAutomation", args, () => runDiagnosticsAutomation(args));
+            return runGatedMutationActionAsync("runAutomation", args, async () => {
+                if (args.suite === "cursor") {
+                    const { runCursorAutomation } = await import('./mcp-cursor-automation.js');
+                    return runCursorAutomation({
+                        collectClients: options => collectClientDiagnosticsForDiagnostics(options, { getDebugState })
+                    });
+                }
+                if (args.suite !== undefined && args.suite !== "marquee") {
+                    throw new Error("Unknown automation suite. Expected marquee or cursor.");
+                }
+                return runDiagnosticsAutomation(args);
+            });
         },
 
         cleanupFixtures(args = {}) {

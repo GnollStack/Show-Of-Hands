@@ -1,6 +1,7 @@
 import { posix } from 'node:path';
 
 export const EXPECTED_MODULE_ID = 'show-of-hands';
+export const EXPECTED_REPOSITORY_URL = 'https://github.com/GnollStack/Show-Of-Hands';
 
 export const RELEASE_PAYLOAD_PATHS = Object.freeze([
     'LICENSE.txt',
@@ -70,18 +71,25 @@ export function validateReleaseContract({
         if (!readme.includes(`**Version:** ${version}`)) {
             errors.push('README footer version must match module.json version.');
         }
+        const expectedManifestUrl = `${EXPECTED_REPOSITORY_URL}/releases/latest/download/module.json`;
+        if (!readme.includes(expectedManifestUrl)) {
+            errors.push(`README installation URL must be ${expectedManifestUrl}.`);
+        }
     } else if (typeof readme !== 'string') {
         errors.push('README content is required for release validation.');
     }
 
     if (!repositoryUrl) {
         errors.push('module.json url must identify the release repository.');
-    } else if (version) {
+    } else if (repositoryUrl !== EXPECTED_REPOSITORY_URL) {
+        errors.push(`module.json url must be ${EXPECTED_REPOSITORY_URL}.`);
+    }
+    if (version) {
         const expected = {
-            manifest: `${repositoryUrl}/releases/latest/download/module.json`,
-            download: `${repositoryUrl}/releases/download/V${version}/${EXPECTED_MODULE_ID}.zip`,
-            readme: `${repositoryUrl}/blob/main/README.md`,
-            bugs: `${repositoryUrl}/issues`
+            manifest: `${EXPECTED_REPOSITORY_URL}/releases/latest/download/module.json`,
+            download: `${EXPECTED_REPOSITORY_URL}/releases/download/V${version}/${EXPECTED_MODULE_ID}.zip`,
+            readme: `${EXPECTED_REPOSITORY_URL}/blob/main/README.md`,
+            bugs: `${EXPECTED_REPOSITORY_URL}/issues`
         };
         for (const [key, expectedValue] of Object.entries(expected)) {
             if (manifest?.[key] !== expectedValue) {

@@ -1,6 +1,6 @@
 {
   "name": "show-of-hands",
-  "version": "14.2.0",
+  "version": "14.2.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,6 +8,6 @@
     "check:release": "node --test tests/release-integrity.test.mjs",
     "package:release": "node tools/package-release.mjs",
     "smoke": "node tests/local-smoke.mjs",
-    "test": "node --test tests"
+    "test": "node --test"
   }
 }

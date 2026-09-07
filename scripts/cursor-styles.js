@@ -139,6 +139,49 @@ const ROOT_CURSOR_VARIABLES = [
 ];
 
 let _applyCursorSerial = 0;
+let _committedCursorOverrides = null;
+let _restoringFoundryCursors = false;
+const _wrappedGames = new WeakSet();
+
+function writeCursorOverrides(overrides, documents) {
+    for (const doc of documents) {
+        for (const [name, value] of overrides) doc.documentElement?.style?.setProperty(name, value);
+    }
+}
+
+function installCursorConfigurationWrapper() {
+    const gameRef = globalThis.game;
+    if (!gameRef || _wrappedGames.has(gameRef) || typeof gameRef.configureCursors !== "function") return;
+
+    const restoreOverrides = () => {
+        if (_restoringFoundryCursors || !_committedCursorOverrides) return;
+        const documents = getCursorDocuments();
+        for (const doc of documents) copyCursorVariables(globalThis.document, doc);
+        writeCursorOverrides(_committedCursorOverrides, documents);
+    };
+
+    if (typeof globalThis.libWrapper?.register === "function") {
+        try {
+            globalThis.libWrapper.register(MODULE_ID, "game.configureCursors", function(wrapped, ...args) {
+                const result = wrapped(...args);
+                restoreOverrides();
+                return result;
+            }, "WRAPPER");
+            _wrappedGames.add(gameRef);
+            return;
+        } catch (error) {
+            debugLog("cursor", "Cursor configuration wrapper using direct fallback:", error);
+        }
+    }
+
+    const original = gameRef.configureCursors;
+    gameRef.configureCursors = function(...args) {
+        const result = original.apply(this, args);
+        restoreOverrides();
+        return result;
+    };
+    _wrappedGames.add(gameRef);
+}
 
 function summarizeCursorStatesForLog(states = {}) {
     return Object.fromEntries(Object.entries(states ?? {}).map(([key, state]) => [
@@ -275,7 +318,14 @@ function restoreFoundryCursorVariables(documents = getCursorDocuments()) {
     // Foundry owns the root cursor variables. Restore its defaults first, then
     // layer Show of Hands overrides inline on documentElement below.
     if (typeof game?.configureCursors === "function") {
-        game.configureCursors();
+        // Internal resets must expose native defaults, including when the next
+        // profile no longer overrides a previously customized down cursor.
+        _restoringFoundryCursors = true;
+        try {
+            game.configureCursors();
+        } finally {
+            _restoringFoundryCursors = false;
+        }
         const primaryDocument = globalThis.document;
         for (const doc of documents) copyCursorVariables(primaryDocument, doc);
         debugLog("cursor", "restoreFoundryCursorVariables: reset root cursor vars through game.configureCursors()");
@@ -288,11 +338,13 @@ function restoreFoundryCursorVariables(documents = getCursorDocuments()) {
 
 export async function applyCursorStyles(isEnabled) {
     const applyId = ++_applyCursorSerial;
+    installCursorConfigurationWrapper();
     const config = getUserCursorConfig(game.user);
     const enabled = isEnabled ?? config.useCustomCursor;
     debugLog("cursor", `applyCursorStyles called, isEnabled=${enabled}`);
 
     if (!enabled) {
+        _committedCursorOverrides = null;
         const targetDocuments = getCursorDocuments();
         restoreFoundryCursorVariables(targetDocuments);
         for (const doc of targetDocuments) doc.getElementById?.(STYLE_ID)?.remove?.();
@@ -384,25 +436,21 @@ export async function applyCursorStyles(isEnabled) {
     }
 
     restoreFoundryCursorVariables(targetDocuments);
-    for (const { doc } of replacements) {
-        const rootStyle = doc.documentElement?.style;
-        for (const { cssVar, value } of rootCursorValues) {
-            rootStyle?.setProperty(cssVar, value);
-            debugLog("cursor", `applyCursorStyles: set ${cssVar} = ${summarizeCursorValueForLog(value)}`);
-        }
-        // A configured click image covers both non-dragging press types. When
-        // the image is empty or failed to load, preserve Foundry's distinct
-        // native default-down fallback instead of turning the canvas arrow into
-        // pointer-down. A disabled click state intentionally falls back to Hover.
-        if (shouldShareClickCursorWithDefaultDown) {
-            rootStyle?.setProperty("--cursor-default-down", "var(--cursor-pointer-down)");
-        }
-        rootStyle?.setProperty("--cursor-text-down", "var(--cursor-text)");
+    const overrides = new Map(rootCursorValues.map(({ cssVar, value }) => [cssVar, value]));
+    // Preserve distinct native down fallbacks when Click has no loaded image.
+    if (shouldShareClickCursorWithDefaultDown) {
+        overrides.set("--cursor-default-down", "var(--cursor-pointer-down)");
     }
+    overrides.set("--cursor-text-down", "var(--cursor-text)");
+    writeCursorOverrides(overrides, targetDocuments);
     for (const { existingStyle, replacement } of replacements) {
         if (!replacement) continue;
         existingStyle?.remove?.();
         replacement.id = STYLE_ID;
+    }
+    _committedCursorOverrides = overrides;
+    for (const [cssVar, value] of overrides) {
+        debugLog("cursor", `applyCursorStyles: set ${cssVar} = ${summarizeCursorValueForLog(value)}`);
     }
     debugLog("cursor", "applyCursorStyles: set inline root cursor vars in all live documents");
     debugLog("cursor", "Custom cursor applied.");

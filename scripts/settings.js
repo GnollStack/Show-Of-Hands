@@ -71,6 +71,11 @@ function hasStoredClientSetting(key) {
     return getStoredSettingData("client", MODULE_ID, key).found;
 }
 
+function hasStoredChoiceSetting(key, choices) {
+    const stored = getStoredSettingData("client", MODULE_ID, key);
+    return stored.found && typeof stored.value === "string" && Object.prototype.hasOwnProperty.call(choices, stored.value);
+}
+
 function hasAnyStoredClientSetting(keys) {
     return keys.some(key => hasStoredClientSetting(key));
 }
@@ -133,6 +138,21 @@ async function migrateLegacyNamespaceSettings({ scopes = ["client", "world"] } =
     const currentPrivate = getStoredSettingData("client", MODULE_ID, "hide-my-cursor-from-others");
     const hasCurrentLegacySharingMode = currentSharing.found || currentPrivate.found;
 
+    // Materialize the effective legacy compact mode before copying its older
+    // booleans. Otherwise those newly current booleans temporarily outrank it
+    // in the early-startup privacy filter. A failed write must stop the copy.
+    const currentMode = getStoredSettingData("client", MODULE_ID, "cursor-sharing-mode");
+    const legacyMode = getStoredSettingData("client", LEGACY_MODULE_ID, "cursor-sharing-mode");
+    if (allowedScopes.has("client") && !currentMode.found && !hasCurrentLegacySharingMode
+        && legacyMode.found && typeof legacyMode.value === "string"
+        && Object.prototype.hasOwnProperty.call(CURSOR_SHARING_MODES, legacyMode.value)) {
+        try {
+            await game.settings.set(MODULE_ID, "cursor-sharing-mode", legacyMode.value);
+        } catch (error) {
+            throw new AggregateError([error], `One or more ${LEGACY_MODULE_ID} namespace settings could not be migrated.`);
+        }
+    }
+
     // Copy old namespace values only when this install has not saved the new key yet.
     for (const definition of SETTING_DEFINITIONS) {
         // A partially upgraded current namespace is newer than the old package
@@ -161,8 +181,7 @@ async function migrateLegacyNamespaceSettings({ scopes = ["client", "world"] } =
 }
 
 async function materializeCurrentLegacyCursorSharingMode() {
-    const currentMode = getStoredSettingData("client", MODULE_ID, "cursor-sharing-mode");
-    if (currentMode.found) return;
+    if (hasStoredChoiceSetting("cursor-sharing-mode", CURSOR_SHARING_MODES)) return;
 
     const currentSharing = getStoredSettingData("client", MODULE_ID, "enable-cursor-sharing");
     const currentPrivate = getStoredSettingData("client", MODULE_ID, "hide-my-cursor-from-others");
@@ -684,8 +703,7 @@ export function getMarqueeLevelFilter() {
     return getChoiceSetting("marquee-level-filter", MARQUEE_LEVEL_FILTERS, "all");
 }
 
-export function tokenMatchesMarqueeFilter(token) {
-    const filter = getMarqueeTokenFilter();
+export function tokenMatchesMarqueeFilter(token, filter = getMarqueeTokenFilter()) {
     if (filter === "all") return true;
 
     const disposition = Number(token?.document?.disposition ?? token?.disposition ?? 0);
@@ -732,8 +750,8 @@ export async function migrateSettings({ includeWorld = true } = {}) {
         try {
             debugLog("cursor", `Migrating settings to v${targetVersion}...`);
             await migrate();
+            await game.settings.set(MODULE_ID, "settings-version", targetVersion);
             version = targetVersion;
-            await game.settings.set(MODULE_ID, "settings-version", version);
             return true;
         } catch (e) {
             console.warn(`${MODULE_ID} | Migration to v${targetVersion} failed; stopping at v${version}.`, e);
@@ -747,10 +765,16 @@ export async function migrateSettings({ includeWorld = true } = {}) {
 
             try { oldEnabled = game.settings.get(MODULE_ID, "use-aom-cursor"); } catch { /* legacy setting may not exist */ }
 
-            // v1 only had an on/off bundled cursor toggle. The art is gone now,
-            // so keep the preference and fall back to native cursor defaults.
-            await game.settings.set(MODULE_ID, "use-custom-cursor", oldEnabled);
-            await game.settings.set(MODULE_ID, "cursor-states", getDefaultCursorStates());
+            // A stale marker can coexist with newer preferences after a partial
+            // upgrade. Fill missing values; later steps normalize existing art.
+            const enabled = getStoredSettingData("client", MODULE_ID, "use-custom-cursor");
+            if (!enabled.found || typeof enabled.value !== "boolean") {
+                await game.settings.set(MODULE_ID, "use-custom-cursor", oldEnabled);
+            }
+            const states = getStoredSettingData("client", MODULE_ID, "cursor-states");
+            if (!states.found || !states.value || typeof states.value !== "object" || Array.isArray(states.value)) {
+                await game.settings.set(MODULE_ID, "cursor-states", getDefaultCursorStates());
+            }
         });
     }
 
@@ -782,8 +806,14 @@ export async function migrateSettings({ includeWorld = true } = {}) {
             const privateMode = game.settings.get(MODULE_ID, "hide-my-cursor-from-others");
             const cursorSharingMode = privateMode ? "private" : (sharing ? "share" : "receive");
 
-            await game.settings.set(MODULE_ID, "middle-mouse-actions", middleMouseMode);
-            await game.settings.set(MODULE_ID, "cursor-sharing-mode", cursorSharingMode);
+            // Never replace an explicit compact preference with old booleans or
+            // registered defaults, even when the migration marker is missing.
+            if (!hasStoredChoiceSetting("middle-mouse-actions", MIDDLE_MOUSE_ACTION_MODES)) {
+                await game.settings.set(MODULE_ID, "middle-mouse-actions", middleMouseMode);
+            }
+            if (!hasStoredChoiceSetting("cursor-sharing-mode", CURSOR_SHARING_MODES)) {
+                await game.settings.set(MODULE_ID, "cursor-sharing-mode", cursorSharingMode);
+            }
         });
     }
 

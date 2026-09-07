@@ -101,6 +101,211 @@ function makeValidPngDataUrl(width = 1, height = 1) {
     return `data:image/png;base64,${bytes.toString('base64')}`;
 }
 
+async function withSharingEnvironment(name, run) {
+    const keys = ['canvas', 'game', 'foundry', 'Hooks', 'PIXI', 'CONFIG', 'Image', 'setTimeout', 'clearTimeout'];
+    const previous = Object.fromEntries(keys.map(key => [key, globalThis[key]]));
+    const priorNow = Date.now;
+    const socketListeners = new Map();
+    const hookListeners = new Map();
+    const tickers = new Set();
+    const mouseHandlers = new Set();
+    const emissions = [];
+    const timers = new Map();
+    const images = [];
+    const cursorParent = new FakeContainer();
+    let now = 1000;
+    let nextTimerId = 0;
+    const makeUser = id => ({
+        id, name: id, color: 0x102030, active: true,
+        viewedScene: 'scene-1', viewedLevel: 'ground', cursorAllowed: true,
+        hasPermission(permission) { return permission !== 'SHOW_CURSOR' || this.cursorAllowed; },
+        getFlag: () => ({ useCustomCursor: false })
+    });
+    const local = makeUser('local');
+    const remote = makeUser('remote');
+    Date.now = () => now;
+    globalThis.setTimeout = function(callback, delay) {
+        if (this !== undefined && this !== globalThis) throw new TypeError('Illegal invocation');
+        const id = ++nextTimerId;
+        timers.set(id, { callback, due: now + delay });
+        return id;
+    };
+    globalThis.clearTimeout = function(id) {
+        if (this !== undefined && this !== globalThis) throw new TypeError('Illegal invocation');
+        return timers.delete(id);
+    };
+    globalThis.PIXI = { Container: FakeContainer, Graphics: FakeGraphics, Text: FakeText };
+    globalThis.CONFIG = { Canvas: { maxZoom: 3 } };
+    globalThis.Image = class {
+        set src(value) { this.source = value; images.push(this); }
+        removeAttribute() { this.source = null; }
+    };
+    globalThis.foundry = { utils: { mergeObject: (base, value) => Object.assign(structuredClone(base), value) } };
+    const socket = {
+        emit: (...args) => emissions.push(args),
+        on(event, handler) {
+            const handlers = socketListeners.get(event) ?? new Set();
+            handlers.add(handler);
+            socketListeners.set(event, handlers);
+        },
+        off(event, handler) { socketListeners.get(event)?.delete(handler); }
+    };
+    socket.volatile = socket;
+    globalThis.game = {
+        user: local, users: new Map([[local.id, local], [remote.id, remote]]), socket,
+        settings: { get: (_scope, key) => key === 'hidden-shared-cursor-users' ? {} : 'off' }
+    };
+    globalThis.Hooks = {
+        on(event, handler) { hookListeners.set(event, handler); return handler; },
+        off(event, handler) { if (hookListeners.get(event) === handler) hookListeners.delete(event); }
+    };
+    globalThis.canvas = {
+        ready: true, scene: { id: 'scene-1' }, level: { id: 'ground' }, controls: { cursors: cursorParent },
+        registerMouseMoveHandler(handler) { mouseHandlers.add(handler); },
+        app: {
+            stage: { worldTransform: { apply: (point, output) => Object.assign(output, point) } },
+            ticker: { add: callback => tickers.add(callback), remove: callback => tickers.delete(callback) }
+        }
+    };
+    let sharing;
+    let overlay;
+    try {
+        const moduleUrl = new URL('../scripts/cursor-sharing.js', import.meta.url);
+        moduleUrl.searchParams.set('sharing-runtime', name);
+        sharing = await import(moduleUrl);
+        overlay = await import('../scripts/cursor-overlay.js');
+        const receive = (data, senderId = remote.id) => {
+            for (const handler of socketListeners.get('module.show-of-hands') ?? []) handler({ userId: remote.id, ...data }, senderId);
+        };
+        const activity = data => {
+            for (const handler of socketListeners.get('userActivity') ?? []) handler(remote.id, data);
+        };
+        const advance = milliseconds => {
+            const target = now + milliseconds;
+            while (true) {
+                const next = [...timers].filter(([, timer]) => timer.due <= target).sort((a, b) => a[1].due - b[1].due)[0];
+                if (!next) break;
+                const [id, timer] = next;
+                timers.delete(id);
+                now = timer.due;
+                timer.callback();
+            }
+            now = target;
+        };
+        const move = (x = 10, y = 20) => receive({ type: 'cursorMove', sceneId: 'scene-1', levelId: 'ground', x, y });
+        const cursorImage = imageDataUrl => receive({ type: 'cursorImage', imageDataUrl, hotspotX: 0, hotspotY: 0 });
+        await run({ sharing, overlay, local, remote, receive, activity, advance, move, cursorImage, images, timers,
+            emissions, socketListeners, hookListeners, mouseHandlers, cursorParent, tick: () => { for (const tick of tickers) tick(); } });
+    } finally {
+        sharing?.stopCursorSharing();
+        overlay?.destroyCursorOverlay();
+        Date.now = priorNow;
+        for (const [key, value] of Object.entries(previous)) {
+            if (value === undefined) delete globalThis[key];
+            else globalThis[key] = value;
+        }
+    }
+}
+
+test('sharing bridge preserves native movement authority and targets image responses to the authenticated requester', async () => {
+    await withSharingEnvironment('native-and-requests', async env => {
+        const { sharing, activity, move, cursorImage, cursorParent, receive, emissions, local, advance } = env;
+        sharing.startCursorSharing(false);
+        activity({ cursor: { x: 100, y: 200 } });
+        assert.equal(env.overlay.getCursorOverlayDebugState().cursorCount, 0, 'native-only peer has no module arrow');
+        cursorImage(null);
+        move(1, 2);
+        const entry = cursorParent.children[0].children[0];
+        assert.deepEqual(entry.position, { x: 100, y: 200, set: entry.position.set });
+        sharing.setCursorBroadcastEnabled(true);
+        emissions.length = 0;
+        receive({ type: 'requestCursorImage', userId: 'someone-else' });
+        assert.equal(emissions.length, 0, 'spoofed requester is ignored');
+        receive({ type: 'requestCursorImage' });
+        assert.equal(emissions.length, 1);
+        assert.equal(emissions[0][1].type, 'cursorImage');
+        assert.deepEqual(emissions[0][2], { recipients: ['remote'] });
+        receive({ type: 'requestCursorImage' });
+        assert.equal(emissions.length, 1, 'repeated requests are rate-limited');
+        local.cursorAllowed = false;
+        advance(1000);
+        receive({ type: 'requestCursorImage' });
+        assert.equal(emissions.at(-1)[1].type, 'cursorHidden');
+        assert.deepEqual(emissions.at(-1)[2], { recipients: ['remote'] });
+    });
+});
+
+test('sharing bridge cancels queued images on clear, hide, and disconnect without resurrecting overlays', async () => {
+    await withSharingEnvironment('image-cancellation', async env => {
+        const { sharing, move, cursorImage, images, timers, advance, receive, hookListeners, remote, overlay } = env;
+        sharing.startCursorSharing(false);
+        move();
+        const image = makeValidPngDataUrl(16, 16);
+        cursorImage(image);
+        cursorImage(image);
+        assert.equal(images.length, 1);
+        cursorImage(null);
+        assert.equal(timers.size, 0, 'clear cancels both coalescing and decode');
+        cursorImage(image);
+        assert.equal(images.length, 1, 'clear retains the non-null rate history');
+        advance(250);
+        assert.equal(images.length, 2);
+        cursorImage(image);
+        receive({ type: 'cursorHidden' });
+        advance(250);
+        assert.equal(overlay.getCursorOverlayDebugState().cursorCount, 0);
+        assert.equal(timers.size, 0);
+        move();
+        cursorImage(image);
+        cursorImage(image);
+        hookListeners.get('userConnected')(remote, false);
+        advance(250);
+        assert.equal(overlay.getCursorOverlayDebugState().cursorCount, 0);
+        assert.equal(timers.size, 0);
+        assert.ok(images.every(img => img.onload === null), 'all abandoned decodes lose their callbacks');
+    });
+});
+
+test('sharing lifecycle clears old scenes, enforces permissions, and reuses its mouse handler', async () => {
+    await withSharingEnvironment('lifecycle', async env => {
+        const { sharing, overlay, move, remote, activity, tick, cursorImage, timers, socketListeners, mouseHandlers, emissions } = env;
+        sharing.startCursorSharing(false);
+        sharing.startCursorSharing(false);
+        assert.equal(mouseHandlers.size, 1);
+        assert.equal(socketListeners.get('module.show-of-hands').size, 1);
+        move();
+        remote.cursorAllowed = false;
+        tick();
+        assert.equal(overlay.getCursorOverlayDebugState().cursorCount, 0);
+        remote.cursorAllowed = true;
+        env.advance(30);
+        move();
+        remote.viewedLevel = 'upstairs';
+        activity({ levelId: 'upstairs' });
+        assert.equal(overlay.getCursorOverlayDebugState().cursorCount, 0);
+        env.advance(30);
+        move();
+        assert.equal(overlay.getCursorOverlayDebugState().cursorCount, 0, 'a stale ground-floor packet cannot cross levels');
+        remote.viewedLevel = 'ground';
+        move();
+        cursorImage(makeValidPngDataUrl(16, 16));
+        cursorImage(makeValidPngDataUrl(16, 16));
+        sharing.stopCursorSharing();
+        overlay.destroyCursorOverlay();
+        assert.equal(timers.size, 0);
+        assert.equal(socketListeners.get('module.show-of-hands').size, 0);
+        assert.equal(socketListeners.get('userActivity').size, 0);
+        canvas.scene = { id: 'scene-2' };
+        sharing.startCursorSharing(false);
+        assert.equal(mouseHandlers.size, 1);
+        move();
+        assert.equal(overlay.getCursorOverlayDebugState().cursorCount, 0, 'old scene traffic cannot recreate entries');
+        emissions.length = 0;
+        for (const moveHandler of mouseHandlers) moveHandler({ x: 100, y: 200 });
+        assert.equal(emissions.length, 0, 'receive-only mode does not emit local movement');
+    });
+});
+
 test('pending native movement wins when delayed module movement creates an overlay', async () => {
     const previous = {
         canvas: globalThis.canvas,

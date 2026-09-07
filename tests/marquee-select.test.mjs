@@ -61,6 +61,7 @@ test('marquee runtime owns its pointer, throttles previews, flushes release, and
         document: globalThis.document,
         game: globalThis.game,
         canvas: globalThis.canvas,
+        CONST: globalThis.CONST,
         PIXI: globalThis.PIXI
     };
 
@@ -69,6 +70,9 @@ test('marquee runtime owns its pointer, throttles previews, flushes release, and
     const documentEvents = new ListenerRegistry();
     const rafCallbacks = new Map();
     const targetCalls = [];
+    let boundsReads = 0;
+    const filterReads = new Map();
+    const filters = { 'marquee-token-filter': 'all', 'marquee-level-filter': 'all' };
     let nextRafId = 1;
     let cleanupMarqueeListener;
     let toggleMarqueeListener;
@@ -79,6 +83,10 @@ test('marquee runtime owns its pointer, throttles previews, flushes release, and
         { id: 'c', visible: true, destroyed: false, bounds: { left: 45, top: 45, right: 50, bottom: 50 } }
     ];
     const tokenById = new Map(tokens.map(token => [token.id, token]));
+    for (const token of tokens) {
+        const bounds = token.bounds;
+        Object.defineProperty(token, 'bounds', { get() { boundsReads++; return bounds; } });
+    }
 
     const stage = {
         on: (type, handler) => stageEvents.add(type, handler),
@@ -124,8 +132,10 @@ test('marquee runtime owns its pointer, throttles previews, flushes release, and
                 assert.equal(moduleId, 'show-of-hands');
                 if (key === 'debug-mode') return 'off';
                 if (key === 'middle-mouse-actions') return 'both';
-                if (key === 'marquee-token-filter') return 'all';
-                if (key === 'marquee-level-filter') return 'all';
+                if (key === 'marquee-token-filter' || key === 'marquee-level-filter') {
+                    filterReads.set(key, (filterReads.get(key) ?? 0) + 1);
+                    return filters[key];
+                }
                 if (key === 'clear-targets-on-empty-click') return true;
                 throw new Error(`Unexpected setting: ${key}`);
             }
@@ -160,15 +170,21 @@ test('marquee runtime owns its pointer, throttles previews, flushes release, and
         assert.equal(rafCallbacks.size, 0);
 
         stageEvents.emit('pointermove', pointerEvent(11, 30, 30, -1));
+        for (let index = 0; index < 100; index++) stageEvents.emit('pointermove', pointerEvent(11, 60, 60, -1));
         stageEvents.emit('pointermove', pointerEvent(11, 28, 28, -1));
         assert.equal(rafCallbacks.size, 1, 'multiple moves share one queued animation frame');
         assert.equal(targetCalls.length, 0);
+        assert.equal(boundsReads, 0, 'raw move bursts must not hit-test tokens');
+        assert.equal(filterReads.size, 0, 'raw move bursts must not read filters');
 
         flushAnimationFrame(16);
         assert.equal(targetCalls.length, 0, 'the first frame remains inside the 33ms throttle');
         assert.equal(rafCallbacks.size, 1);
+        assert.equal(boundsReads, 0, 'throttled frames do not hit-test');
         flushAnimationFrame(40);
         assert.deepEqual(targetCalls, [{ ids: ['a', 'b'], options: { mode: 'replace' } }]);
+        assert.equal(boundsReads, 3, 'only the most recent rectangle is evaluated once');
+        assert.deepEqual([...filterReads.values()], [1, 1], 'read each filter once per pass');
 
         stageEvents.emit('pointermove', pointerEvent(11, 40, 40, -1));
         assert.equal(rafCallbacks.size, 1);
@@ -184,6 +200,7 @@ test('marquee runtime owns its pointer, throttles previews, flushes release, and
         assert.equal(rafCallbacks.size, 0);
         assert.deepEqual(targetCalls[1], { ids: ['a', 'b', 'c'], options: { mode: 'replace' } });
         assert.equal(targetCalls.length, 2);
+        assert.equal(boundsReads, 6, 'release performs one immediate hit-test pass');
         assert.equal(stageEvents.has('pointermove'), false);
         assert.equal(stageEvents.has('pointerup'), false);
         assert.equal(stageEvents.has('pointercancel'), false);
@@ -215,6 +232,53 @@ test('marquee runtime owns its pointer, throttles previews, flushes release, and
         assert.equal(stageEvents.has('pointermove'), true, 'the stale pointer cannot finish the new gesture');
         stageEvents.emit('pointercancel', pointerEvent(32, 0, 0, 1));
         assert.equal(targetCalls.length, 6, 'cancel before drag does not emit a redundant target update');
+
+        // Visibility is evaluated at reconciliation time, not when a move was
+        // queued. Shift keeps the baseline and uses the latest modifier state.
+        setCurrentTargets(['c']);
+        stageEvents.emit('pointerdown', pointerEvent(41, 0, 0));
+        stageEvents.emit('pointermove', pointerEvent(41, 30, 30, -1, false));
+        stageEvents.emit('pointermove', pointerEvent(41, 30, 30, -1, true));
+        tokens[1].visible = false;
+        flushAnimationFrame(200);
+        assert.deepEqual([...game.user.targets].map(token => token.id).sort(), ['a', 'c']);
+        stageEvents.emit('pointermove', pointerEvent(41, 60, 60, -1));
+        const readsBeforeCancel = boundsReads;
+        windowEvents.emit('blur', {});
+        assert.deepEqual([...game.user.targets].map(token => token.id), ['c']);
+        assert.equal(rafCallbacks.size, 0);
+        assert.equal(boundsReads, readsBeforeCancel, 'cancellation drops queued work');
+        tokens[1].visible = true;
+
+        // Cached per-pass filters retain the visibility -> level -> disposition
+        // ordering, and changes between frames are observed on the next pass.
+        globalThis.CONST = { TOKEN_DISPOSITIONS: { HOSTILE: -1, FRIENDLY: 1 } };
+        canvas.level = { id: 'ground' };
+        tokens[0].document = { level: 'ground', disposition: -1 };
+        tokens[1].document = { level: 'upstairs', disposition: -1 };
+        tokens[2].document = { level: 'ground', disposition: 1 };
+        tokens[0].visible = false;
+        filters['marquee-level-filter'] = 'viewed';
+        filters['marquee-token-filter'] = 'hostile';
+        setCurrentTargets([]);
+        stageEvents.emit('pointerdown', pointerEvent(51, 0, 0));
+        stageEvents.emit('pointermove', pointerEvent(51, 60, 60, -1));
+        flushAnimationFrame(300);
+        assert.equal(game.user.targets.size, 0, 'players cannot select hidden, other-level, or non-hostile tokens');
+        game.user.isGM = true;
+        stageEvents.emit('pointermove', pointerEvent(51, 61, 61, -1));
+        flushAnimationFrame(340);
+        assert.deepEqual([...game.user.targets].map(token => token.id), ['a']);
+        filters['marquee-level-filter'] = 'all';
+        stageEvents.emit('pointermove', pointerEvent(51, 62, 62, -1));
+        flushAnimationFrame(380);
+        assert.deepEqual([...game.user.targets].map(token => token.id), ['a', 'b']);
+        filters['marquee-level-filter'] = 'viewed';
+        canvas.level = null;
+        stageEvents.emit('pointermove', pointerEvent(51, 63, 63, -1));
+        flushAnimationFrame(420);
+        assert.deepEqual([...game.user.targets].map(token => token.id), ['a', 'b'], 'viewed filter is a no-op without level context');
+        stageEvents.emit('pointercancel', pointerEvent(51, 63, 63));
 
         // Base listener cleanup is tied to the exact stage that received it,
         // even if Foundry has already replaced canvas.app.stage.

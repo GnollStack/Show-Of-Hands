@@ -7,7 +7,7 @@
 [![Latest Release](https://img.shields.io/github/v/release/GnollStack/Show-Of-Hands?label=Latest%20Release&style=flat-square)](https://github.com/GnollStack/Show-Of-Hands/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/GnollStack/Show-Of-Hands/total?style=flat-square&color=green)](https://github.com/GnollStack/Show-Of-Hands/releases)
 [![Downloads@latest](https://img.shields.io/github/downloads/GnollStack/Show-Of-Hands/latest/total?style=flat-square)](https://github.com/GnollStack/Show-Of-Hands/releases/latest)
-[![Foundry VTT](https://img.shields.io/badge/Foundry-v14%2B-orange?style=flat-square)](https://foundryvtt.com)
+[![Foundry VTT](https://img.shields.io/badge/Foundry-v14-orange?style=flat-square)](https://foundryvtt.com)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Buy%20a%20Steak-FF5E5B?style=flat-square&logo=ko-fi&logoColor=white)](https://ko-fi.com/gnollstack)
 
 *Who doesn't like customized cursors!?*
@@ -334,7 +334,7 @@ https://github.com/GnollStack/Show-Of-Hands/releases/latest/download/module.json
 
 | Requirement | Version |
 | --- | --- |
-| Foundry VTT | v14+ (verified on v14.363) |
+| Foundry VTT | v14 (verified on v14.367) |
 
 ---
 
@@ -376,11 +376,11 @@ https://github.com/GnollStack/Show-Of-Hands/releases/latest/download/module.json
 
 ## Compatibility
 
-**Module version:** `14.2.0`
+**Module version:** `14.2.2`
 
-**Foundry VTT:** v14+, verified on v14.363.
+**Foundry VTT:** v14, verified on v14.367.
 
-**Systems:** System-agnostic. Targeting, cursor styling, and cursor sharing operate at the canvas and client UI layers.
+**Systems:** System-agnostic. Targeting, cursor styling, and cursor sharing operate at the canvas and client UI layers. Runtime diagnostics were also exercised in dnd5e 5.3.3; the module does not depend on dnd5e APIs or data schemas.
 
 **Browsers:** Cursor customization relies on browser cursor image support. Keep cursor images at `128x128` or smaller for best compatibility.
 
@@ -568,7 +568,7 @@ For licensing inquiries or permission slips:
 
 <div align="center">
 
-**Author:** [GnollStack](https://github.com/GnollStack) - **Compatibility:** Foundry VTT v14+ - **Version:** 14.2.0
+**Author:** [GnollStack](https://github.com/GnollStack) - **Compatibility:** Foundry VTT v14 - **Version:** 14.2.2
 
 [Back to Top](#show-of-hands)
 

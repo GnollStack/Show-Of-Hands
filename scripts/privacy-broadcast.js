@@ -158,7 +158,10 @@ export function installCursorPrivacyBroadcastWrapper({
                 function(wrapped, activityData = {}, options = {}) {
                     return handleBroadcastActivity(this, wrapped, activityData, options);
                 },
-                "WRAPPER"
+                // Private cursor-only activity intentionally stops the chain.
+                // WRAPPER would be unregistered by libWrapper after that first
+                // dropped packet, allowing subsequent native coordinates out.
+                "MIXED"
             );
 
             _state = {

@@ -130,7 +130,7 @@ function syncOverlaySettingsFromStore() {
 
 function getDebugState() {
     return {
-        moduleVersion: game.modules.get(MODULE_ID)?.version ?? game.modules.get(MODULE_ID)?.data?.version ?? "unknown",
+        moduleVersion: game.modules.get(MODULE_ID)?.version ?? "unknown",
         foundryVersion: game.version ?? "unknown",
         canvasReady: !!canvas?.ready,
         sceneId: canvas?.scene?.id ?? null,

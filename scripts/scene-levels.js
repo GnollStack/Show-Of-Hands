@@ -29,10 +29,10 @@ export function isTokenIncludedInLevel(tokenOrDocument, levelId) {
 
 export function tokenMatchesMarqueeLevelFilter(token, {
     filter = getMarqueeLevelFilter(),
-    canvasRef = globalThis.canvas
+    canvasRef = globalThis.canvas,
+    levelId = getCurrentLevelId(canvasRef)
 } = {}) {
     if (filter !== "viewed") return true;
-    const levelId = getCurrentLevelId(canvasRef);
     if (!levelId) return true;
     return isTokenIncludedInLevel(token, levelId);
 }

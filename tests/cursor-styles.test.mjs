@@ -386,6 +386,10 @@ test('cursor styles build concurrently and only the latest generation atomically
         );
         assert.equal(commitEvents[0].startsWith('append:'), true);
         assert.equal(commitEvents[1], 'remove:old-active-css');
+        const latestCursor = rootValues.get('--cursor-default');
+        rootValues.set('--cursor-default', 'native');
+        game.configureCursors();
+        assert.equal(rootValues.get('--cursor-default'), latestCursor, 'interface changes replay the committed generation');
 
         pendingImages.get('first-default.png').onload();
         pendingImages.get('first-hover.png').onload();
@@ -394,10 +398,126 @@ test('cursor styles build concurrently and only the latest generation atomically
         assert.equal(globalThis.document.getElementById('show-of-hands-cursor-style'), activeStyle);
         assert.equal(styleNodes.length, 1);
         assert.equal(commitEvents.length, 2);
+        rootValues.set('--cursor-default', 'native');
+        game.configureCursors();
+        assert.equal(rootValues.get('--cursor-default'), latestCursor, 'stale image completion cannot replace the cache');
+
+        profile = { useCustomCursor: true, cursorStates: { default: { image: 'pending-disable.png' } } };
+        const pendingDisable = applyCursorStyles(true);
+        await applyCursorStyles(false);
+        pendingImages.get('pending-disable.png').onload();
+        await pendingDisable;
+        rootValues.set('--cursor-default', 'native-after-disable');
+        game.configureCursors();
+        assert.equal(rootValues.get('--cursor-default'), 'native-after-disable');
+        assert.equal(styleNodes.length, 0, 'pending work cannot restore disabled styles');
     } finally {
         globalThis.document = previous.document;
         globalThis.foundry = previous.foundry;
         globalThis.game = previous.game;
         globalThis.Image = previous.Image;
+    }
+});
+
+test('interface cursor resets retain custom variables through direct and libWrapper paths', async () => {
+    const previous = Object.fromEntries(['document', 'foundry', 'game', 'Image', 'libWrapper'].map(key => [key, globalThis[key]]));
+    try {
+        for (const mode of ['direct', 'libWrapper', 'rejected']) {
+            const makeDocument = () => {
+                const values = new Map();
+                const nodes = [];
+                return {
+                    values,
+                    documentElement: { style: {
+                        get length() { return values.size; },
+                        item: index => [...values.keys()][index],
+                        getPropertyValue: key => values.get(key) ?? '',
+                        getPropertyPriority: () => '',
+                        setProperty: (key, value) => values.set(key, value),
+                        removeProperty: key => values.delete(key)
+                    } },
+                    getElementById: id => nodes.find(node => node.id === id),
+                    createElement() {
+                        return { remove() { nodes.splice(nodes.indexOf(this), 1); } };
+                    },
+                    head: { appendChild: node => nodes.push(node) }
+                };
+            };
+            const main = makeDocument();
+            const detached = makeDocument();
+            const windows = new Map([['detached', { window: { closed: false, document: detached } }]]);
+            let profile = { useCustomCursor: true, cursorStates: { click: { image: 'pressed.png', enabled: true } } };
+            let calls = 0;
+            let registrations = 0;
+            let imageLoads = 0;
+            globalThis.document = main;
+            globalThis.foundry = { applications: { detached: { windows } }, utils: { mergeObject: mergeObjects } };
+            globalThis.Image = class {
+                width = 16; height = 16;
+                set src(value) { imageLoads++; this.onload(); }
+            };
+            globalThis.game = {
+                settings: { get: () => 'off' },
+                user: { getFlag: scope => scope === 'show-of-hands' ? profile : undefined },
+                configureCursors(marker) {
+                    assert.equal(this, game);
+                    calls++;
+                    main.values.clear();
+                    main.values.set('--cursor-default-down', 'native-default-down');
+                    main.values.set('--cursor-pointer-down', 'native-pointer-down');
+                    return marker;
+                }
+            };
+            globalThis.libWrapper = mode === 'direct' ? undefined : {
+                register(moduleId, target, wrapper, type) {
+                    registrations++;
+                    assert.equal(moduleId, 'show-of-hands');
+                    assert.equal(target, 'game.configureCursors');
+                    assert.equal(type, 'WRAPPER');
+                    if (mode === 'rejected') throw new Error('wrapper unavailable');
+                    const original = game.configureCursors;
+                    game.configureCursors = function(...args) { return wrapper.call(this, original.bind(this), ...args); };
+                }
+            };
+            const moduleUrl = new URL('../scripts/cursor-styles.js', import.meta.url);
+            moduleUrl.searchParams.set('reset-mode', mode);
+            const { applyCursorStyles } = await import(moduleUrl);
+            await applyCursorStyles(true);
+            const wrapper = game.configureCursors;
+            await applyCursorStyles(true);
+            assert.equal(game.configureCursors, wrapper, 'installation is idempotent');
+            assert.equal(registrations, mode === 'direct' ? 0 : 1);
+            const loaded = imageLoads;
+            const beforeCalls = calls;
+            const late = makeDocument();
+            windows.set('late', { window: { closed: false, document: late } });
+            for (const action of ['preview', 'save', 'cancel']) {
+                assert.equal(game.configureCursors(action), action, 'original return value is preserved');
+                for (const doc of [main, detached, late]) {
+                    assert.match(doc.values.get('--cursor-pointer-down'), /pressed\.png/);
+                    assert.equal(doc.values.get('--cursor-default-down'), 'var(--cursor-pointer-down)');
+                }
+            }
+            assert.equal(calls, beforeCalls + 3, 'one native call per reset without recursion');
+            assert.equal(imageLoads, loaded, 'interface changes do not rebuild cursor images');
+
+            profile = { useCustomCursor: true, cursorStates: { click: { image: '', enabled: true } } };
+            await applyCursorStyles(true);
+            game.configureCursors();
+            for (const doc of [main, detached, late]) {
+                assert.equal(doc.values.get('--cursor-default-down'), 'native-default-down', 'removed custom state restores native fallback');
+            }
+
+            await applyCursorStyles(false);
+            game.configureCursors();
+            assert.equal(main.values.get('--cursor-pointer-down'), 'native-pointer-down');
+            assert.equal(detached.values.get('--cursor-pointer-down'), 'native-pointer-down');
+            assert.equal(main.getElementById('show-of-hands-cursor-style'), undefined);
+        }
+    } finally {
+        for (const [key, value] of Object.entries(previous)) {
+            if (value === undefined) delete globalThis[key];
+            else globalThis[key] = value;
+        }
     }
 });

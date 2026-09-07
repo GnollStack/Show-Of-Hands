@@ -4,6 +4,7 @@ import { test } from 'node:test';
 
 import {
     EXPECTED_MODULE_ID,
+    EXPECTED_REPOSITORY_URL,
     RELEASE_PAYLOAD_PATHS,
     getManifestRuntimePaths,
     getExpectedReleaseTag,
@@ -21,6 +22,19 @@ test('release metadata is internally consistent', () => {
     const ciTag = process.env.GITHUB_REF_TYPE === 'tag' ? process.env.GITHUB_REF_NAME : null;
     assert.deepEqual(validateReleaseContract({ manifest, packageJson, readme, ciTag }), []);
     assert.equal(manifest.id, EXPECTED_MODULE_ID);
+    assert.equal(manifest.url, EXPECTED_REPOSITORY_URL);
+});
+
+test('release contract rejects the renamed legacy repository URL', () => {
+    const errors = validateReleaseContract({
+        manifest: {
+            ...manifest,
+            url: 'https://github.com/GnollStack/Target-The-Beastie'
+        },
+        packageJson,
+        readme
+    });
+    assert.ok(errors.some(error => error === `module.json url must be ${EXPECTED_REPOSITORY_URL}.`));
 });
 
 test('manifest runtime paths are safe, present, and included in the archive', async () => {

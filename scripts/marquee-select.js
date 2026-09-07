@@ -10,8 +10,8 @@ import {
     MARQUEE_LINE_COLOR, MARQUEE_LINE_ALPHA, MARQUEE_LINE_WIDTH
 } from './constants.js';
 import { performSingleTarget } from './targeting.js';
-import { isMiddleMouseMarqueeEnabled, tokenMatchesMarqueeFilter } from './settings.js';
-import { tokenMatchesMarqueeLevelFilter } from './scene-levels.js';
+import { getMarqueeLevelFilter, getMarqueeTokenFilter, isMiddleMouseMarqueeEnabled, tokenMatchesMarqueeFilter } from './settings.js';
+import { getCurrentLevelId, tokenMatchesMarqueeLevelFilter } from './scene-levels.js';
 import { normalizeRect, rectIntersectsBounds, computeMarqueeTargetUpdate } from './marquee-core.js';
 
 let _startX = 0;
@@ -168,8 +168,7 @@ function _handlePointerMove(event) {
     // Update targets during the drag so players can see the selection before
     // release.
     const rect = normalizeRect(_startX, _startY, worldPos.x, worldPos.y);
-    const tokens = _getTokensInRect(rect);
-    _scheduleTargetReconcile(tokens, event.originalEvent?.shiftKey ?? false);
+    _scheduleTargetReconcile(rect, event.originalEvent?.shiftKey ?? false);
 }
 
 function _handlePointerUp(event) {
@@ -214,8 +213,8 @@ function _handleVisibilityChange() {
     if (globalThis.document?.hidden) _cancelActiveGesture();
 }
 
-function _scheduleTargetReconcile(tokens, additive) {
-    _pendingReconcile = { tokens, additive };
+function _scheduleTargetReconcile(rect, additive) {
+    _pendingReconcile = { rect, additive };
     if (_reconcileFrame !== null) return;
 
     const reconcileOnFrame = timestamp => {
@@ -230,7 +229,7 @@ function _scheduleTargetReconcile(tokens, additive) {
         const pending = _pendingReconcile;
         _pendingReconcile = null;
         _lastReconcileAt = timestamp;
-        _reconcileTargets(pending.tokens, pending.additive);
+        _reconcileTargets(_getTokensInRect(pending.rect), pending.additive);
     };
 
     _reconcileFrame = globalThis.requestAnimationFrame(reconcileOnFrame);
@@ -265,12 +264,14 @@ function _drawRect(x1, y1, x2, y2) {
  */
 function _getTokensInRect(rect) {
     const isGM = game.user.isGM;
+    const tokenFilter = getMarqueeTokenFilter();
+    const levelOptions = { filter: getMarqueeLevelFilter(), levelId: getCurrentLevelId() };
 
     return canvas.tokens.placeables.filter(token => {
         // Keep this order: visibility, level, disposition, then rectangle hit.
         if (!isGM && !token.visible) return false;
-        if (!tokenMatchesMarqueeLevelFilter(token)) return false;
-        if (!tokenMatchesMarqueeFilter(token)) return false;
+        if (!tokenMatchesMarqueeLevelFilter(token, levelOptions)) return false;
+        if (!tokenMatchesMarqueeFilter(token, tokenFilter)) return false;
         return rectIntersectsBounds(rect, token.bounds);
     });
 }

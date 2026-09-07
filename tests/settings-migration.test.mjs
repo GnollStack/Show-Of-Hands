@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { filterPrivateBroadcastActivity } from '../scripts/privacy-broadcast.js';
 
 import { CURSOR_SOURCE_HOTSPOT_MAX, DEFAULT_HOTSPOT, MODULE_ID } from '../scripts/constants.js';
 import {
@@ -44,7 +45,8 @@ function makeEnvironment(initialSettings = {}, {
     legacySettings = {},
     mergeThrows = false,
     rejectWorldBeforeReady = false,
-    failSetOnceFor = null
+    failSetOnceFor = null,
+    onSet = () => {}
 } = {}) {
     const defaults = new Map(SETTING_DEFINITIONS.map(definition => [
         definition.key,
@@ -94,6 +96,7 @@ function makeEnvironment(initialSettings = {}, {
                 }
                 writes.push({ key, value: clone(value) });
                 store.set(`${moduleId}.${key}`, clone(value));
+                onSet(key, value);
                 return value;
             }
         }
@@ -503,5 +506,127 @@ test('legacy migration falls back to defaults for missing legacy keys', async ()
         assert.equal(env.get('cursor-states').default.hotspotY, DEFAULT_HOTSPOT.y);
         assert.equal(env.get('middle-mouse-actions'), 'both');
         assert.equal(env.get('cursor-sharing-mode'), 'share');
+    });
+});
+
+test('older and missing markers preserve compact choices throughout migration in either namespace', async () => {
+    for (const version of [undefined, 0, 1, 2, 3, 4]) {
+        for (const mode of ['private', 'receive', 'share']) {
+            for (const legacyNamespace of [false, true]) {
+                const settings = {
+                    ...(version === undefined ? {} : { 'settings-version': version }),
+                    'cursor-sharing-mode': mode,
+                    'middle-mouse-actions': 'off',
+                    'use-mousewheel-targeting': true,
+                    'use-marquee-select': true,
+                    'enable-cursor-sharing': mode !== 'share',
+                    'hide-my-cursor-from-others': mode === 'share'
+                };
+                const observedModes = [];
+                await withEnvironment(legacyNamespace ? {} : settings, async env => {
+                    assert.equal(getCursorSharingMode(), mode);
+                    await migrateSettings({ includeWorld: false });
+                    assert.equal(env.get('cursor-sharing-mode'), mode);
+                    assert.equal(env.get('middle-mouse-actions'), 'off');
+                    assert.ok(observedModes.every(value => value === mode), 'no temporary sharing change during writes');
+                    const writeCount = env.writes.length;
+                    await migrateSettings({ includeWorld: false });
+                    assert.equal(env.writes.length, writeCount, 'a completed migration is idempotent');
+                }, {
+                    legacySettings: legacyNamespace ? settings : {},
+                    onSet() {
+                        const effective = getCursorSharingMode();
+                        observedModes.push(effective);
+                        if (mode === 'private') {
+                            const filtered = filterPrivateBroadcastActivity({ cursor: { x: 12, y: 34 }, targets: ['a'] }, {
+                                privateMode: effective === 'private'
+                            });
+                            assert.deepEqual(filtered.activityData, { targets: ['a'] });
+                        }
+                    }
+                });
+            }
+        }
+    }
+});
+
+test('current compact preferences win over conflicting legacy values and an imported old marker', async () => {
+    await withEnvironment({ 'cursor-sharing-mode': 'private', 'middle-mouse-actions': 'off' }, async env => {
+        await migrateSettings({ includeWorld: false });
+        assert.equal(env.get('cursor-sharing-mode'), 'private');
+        assert.equal(env.get('middle-mouse-actions'), 'off');
+    }, { legacySettings: { 'settings-version': 1, 'cursor-sharing-mode': 'share', 'middle-mouse-actions': 'both' } });
+});
+
+test('missing or invalid compact choices derive from legacy booleans', async () => {
+    for (const compact of [{}, { 'cursor-sharing-mode': 'invalid', 'middle-mouse-actions': 'invalid' }]) {
+        await withEnvironment({
+            'settings-version': 3, ...compact,
+            'enable-cursor-sharing': false, 'hide-my-cursor-from-others': true,
+            'use-mousewheel-targeting': false, 'use-marquee-select': true
+        }, async env => {
+            await migrateSettings({ includeWorld: false });
+            assert.equal(env.get('cursor-sharing-mode'), 'private');
+            assert.equal(env.get('middle-mouse-actions'), 'marquee');
+        });
+    }
+});
+
+test('a v1 marker preserves newer artwork and toggle while normalizing obsolete bundled art', async () => {
+    for (const legacyNamespace of [false, true]) {
+        const settings = {
+            'settings-version': 1,
+            'use-custom-cursor': false,
+            'use-aom-cursor': true,
+            'cursor-states': {
+                default: { image: 'modules/target-the-beastie/custom/arrow.png', hotspotX: 400, rotation: -90, width: 900 },
+                hover: { image: 'modules/show-of-hands/assets/AOM_cursor_pointer.png', hotspotX: 30, rotation: 45 }
+            }
+        };
+        await withEnvironment(legacyNamespace ? {} : settings, async env => {
+            await migrateSettings({ includeWorld: false });
+            assert.equal(env.get('use-custom-cursor'), false);
+            const states = env.get('cursor-states');
+            assert.equal(states.default.image, settings['cursor-states'].default.image);
+            assert.equal(states.default.hotspotX, 400);
+            assert.equal(states.default.rotation, 270);
+            assert.equal(states.default.width, 128);
+            assert.equal(states.hover.image, '');
+            assert.equal(states.hover.hotspotX, DEFAULT_HOTSPOT.x);
+            assert.ok(states.click);
+        }, { legacySettings: legacyNamespace ? settings : {} });
+    }
+});
+
+test('marker write failure leaves saved preferences intact and retries safely', async () => {
+    await withEnvironment({
+        'settings-version': 1, 'cursor-sharing-mode': 'private', 'middle-mouse-actions': 'off',
+        'use-custom-cursor': false, 'cursor-states': { default: { image: 'custom.png' } }
+    }, async env => {
+        await assert.rejects(migrateSettings({ includeWorld: false }), /transient set failure/);
+        assert.equal(env.get('settings-version'), 1);
+        assert.equal(env.get('cursor-sharing-mode'), 'private');
+        assert.equal(env.get('cursor-states').default.image, 'custom.png');
+        await migrateSettings({ includeWorld: false });
+        assert.equal(env.get('settings-version'), 5);
+        assert.equal(env.get('cursor-sharing-mode'), 'private');
+        assert.equal(env.get('middle-mouse-actions'), 'off');
+        assert.equal(env.get('cursor-states').default.image, 'custom.png');
+        assert.equal(env.get('use-custom-cursor'), false);
+    }, { failSetOnceFor: 'settings-version' });
+});
+
+test('failed early compact-mode copy cannot expose conflicting legacy booleans', async () => {
+    await withEnvironment({}, async env => {
+        await assert.rejects(migrateSettings({ includeWorld: false }), /namespace settings could not be migrated/);
+        assert.equal(getCursorSharingMode(), 'private');
+        assert.equal(env.has('enable-cursor-sharing'), false);
+        assert.equal(env.has('hide-my-cursor-from-others'), false);
+        await migrateSettings({ includeWorld: false });
+        assert.equal(getCursorSharingMode(), 'private');
+    }, {
+        legacySettings: { 'settings-version': 3, 'cursor-sharing-mode': 'private',
+            'enable-cursor-sharing': true, 'hide-my-cursor-from-others': false },
+        failSetOnceFor: 'cursor-sharing-mode'
     });
 });

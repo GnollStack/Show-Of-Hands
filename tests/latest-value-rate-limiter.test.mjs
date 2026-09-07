@@ -3,6 +3,56 @@ import { test } from 'node:test';
 
 import { LatestValueRateLimiter } from '../scripts/latest-value-rate-limiter.js';
 
+test('default browser timers retain their global receiver when scheduling, cancelling, and clearing', () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    const timers = new Map();
+    const delivered = [];
+    let nextTimerId = 0;
+    let now = 0;
+    globalThis.setTimeout = function(callback, delay) {
+        if (this !== globalThis) throw new TypeError('Illegal invocation');
+        const id = ++nextTimerId;
+        timers.set(id, { callback, delay });
+        return id;
+    };
+    globalThis.clearTimeout = function(id) {
+        if (this !== globalThis) throw new TypeError('Illegal invocation');
+        timers.delete(id);
+    };
+    try {
+        const limiter = new LatestValueRateLimiter({
+            intervalMs: 250, now: () => now, deliver: value => delivered.push(value)
+        });
+        assert.equal(limiter.push('user', 'first'), 'delivered');
+        now = 50;
+        assert.equal(limiter.push('user', 'older'), 'scheduled');
+        assert.equal(limiter.push('user', 'newest'), 'coalesced');
+        const [id, timer] = [...timers][0];
+        assert.equal(timer.delay, 200);
+        timers.delete(id);
+        now = 250;
+        timer.callback();
+        assert.deepEqual(delivered, ['first', 'newest']);
+
+        limiter.push('user', 'cancelled');
+        limiter.cancel('user');
+        assert.equal(timers.size, 0);
+        limiter.push('user', 'cleared');
+        limiter.push('other-user', 'other-first');
+        limiter.push('other-user', 'other-cleared');
+        assert.equal(timers.size, 2);
+        limiter.clear();
+        assert.equal(timers.size, 0);
+        assert.equal(limiter.pending.size, 0);
+        assert.equal(limiter.lastDelivered.size, 0);
+        assert.deepEqual(delivered, ['first', 'newest', 'other-first']);
+    } finally {
+        globalThis.setTimeout = originalSetTimeout;
+        globalThis.clearTimeout = originalClearTimeout;
+    }
+});
+
 test('latest-value limiter delivers the newest coalesced value at the trailing edge', () => {
     let now = 0;
     let nextTimerId = 1;

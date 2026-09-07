@@ -51,6 +51,54 @@ const { AdvancedSettingsApp } = await import('../scripts/advanced-settings-app.j
 const { CURSOR_STATE_KEYS } = await import('../scripts/constants.js');
 const { getDefaultUserCursorConfig } = await import('../scripts/settings.js');
 
+test('Advanced Settings shows gated full diagnostics or basic support data and copies the displayed result', async () => {
+    const previousGame = globalThis.game;
+    const previousUi = globalThis.ui;
+    const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    const output = { value: '' };
+    let copied;
+    let debugReads = 0;
+    const fullStatus = { success: true, diagnosticsAvailable: true, details: 'full GM status' };
+    let status = fullStatus;
+    const api = {
+        diagnostics: { actions: { getStatus: () => status } },
+        getDebugState() { debugReads++; return { cursorSharingMode: 'receive' }; }
+    };
+    globalThis.game = {
+        user: { id: 'local' }, users: [],
+        modules: new Map([['show-of-hands', { api }]]),
+        settings: { get: (_scope, key) => key === 'hidden-shared-cursor-users' ? {} : 'all' }
+    };
+    globalThis.ui = { notifications: { info() {}, warn() {} } };
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { clipboard: { async writeText(text) { copied = text; } } } });
+    try {
+        const app = new AdvancedSettingsApp();
+        app.element = { querySelector: () => output };
+        const event = { preventDefault() {} };
+        const actions = AdvancedSettingsApp.DEFAULT_OPTIONS.actions;
+        const context = await app._prepareContext({});
+        assert.deepEqual(JSON.parse(context.diagnostics), fullStatus);
+        assert.equal(debugReads, 0);
+        for (const reason of ['Diagnostics require an active GM user.', 'Diagnostics require Debug Mode.', 'Diagnostics require Enable MCP Diagnostics.']) {
+            status = { success: false, diagnosticsAvailable: false, error: reason, gate: { reason } };
+            actions.refreshDiagnostics.call(app, event);
+            assert.deepEqual(JSON.parse(output.value), { ...status, debugState: { cursorSharingMode: 'receive' } });
+            const beforeCopyReads = debugReads;
+            await actions.copyDiagnostics.call(app, event);
+            assert.equal(copied, output.value);
+            assert.equal(debugReads, beforeCopyReads, 'copy uses the displayed snapshot');
+        }
+        delete api.diagnostics;
+        actions.refreshDiagnostics.call(app, event);
+        assert.deepEqual(JSON.parse(output.value), { cursorSharingMode: 'receive' });
+    } finally {
+        globalThis.game = previousGame;
+        globalThis.ui = previousUi;
+        if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+        else delete globalThis.navigator;
+    }
+});
+
 function makeListenerTarget(initial = {}) {
     const listeners = new Map();
     const listenerOptions = new Map();
@@ -246,6 +294,47 @@ test('cursor profile persistence failures do not close the form', async () => {
     } finally {
         console.warn = previousWarn;
     }
+});
+
+test('cursor image browsing reports a FilePicker rejection without leaking it', async () => {
+    const browseError = new Error('browse failed');
+    let browseCalls = 0;
+    class RejectingFilePicker {
+        async browse() {
+            browseCalls += 1;
+            throw browseError;
+        }
+    }
+
+    const imageInput = { value: 'cursors/current.webp' };
+    const section = {
+        dataset: { tab: 'default' },
+        querySelector(selector) {
+            return selector === 'input[name="states.default.image"]' ? imageInput : null;
+        }
+    };
+    const target = { closest: () => section };
+    const errors = [];
+    const previousFilePicker = globalThis.foundry.applications.apps.FilePicker;
+    globalThis.foundry.applications.apps.FilePicker = { implementation: RejectingFilePicker };
+    globalThis.ui = { notifications: { error: message => errors.push(message) } };
+
+    const previousWarn = console.warn;
+    console.warn = () => {};
+    try {
+        const app = new CursorConfigApp({ targetUserId: 'gm' });
+        await CursorConfigApp.DEFAULT_OPTIONS.actions.browseCursorImage.call(
+            app,
+            { preventDefault() {} },
+            target
+        );
+    } finally {
+        console.warn = previousWarn;
+        globalThis.foundry.applications.apps.FilePicker = previousFilePicker;
+    }
+
+    assert.equal(browseCalls, 1);
+    assert.deepEqual(errors, ['Could not open the cursor image browser.']);
 });
 
 test('Reset All restores every editable cursor profile field', () => {

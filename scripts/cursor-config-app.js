@@ -485,7 +485,7 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
         }
     }
 
-    static #onBrowseCursorImage(event, target) {
+    static async #onBrowseCursorImage(event, target) {
         event.preventDefault();
         const section = CursorConfigApp.#getStateSection(target);
         const stateKey = section?.dataset.tab;
@@ -505,7 +505,12 @@ export class CursorConfigApp extends foundry.applications.api.HandlebarsApplicat
                 this._formDirty = true;
             }
         });
-        fp.browse();
+        try {
+            await fp.browse();
+        } catch (error) {
+            console.warn(`${MODULE_ID} | FilePicker browse failed:`, error);
+            ui.notifications.error("Could not open the cursor image browser.");
+        }
     }
 
     // An empty image path means native Foundry cursor. Reset image-only controls

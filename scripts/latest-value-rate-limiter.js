@@ -4,7 +4,15 @@
  * This keeps rate limits from leaving consumers stuck with stale state.
  */
 export class LatestValueRateLimiter {
-    constructor({ intervalMs, deliver, now = () => Date.now(), setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
+    constructor({
+        intervalMs,
+        deliver,
+        now = () => Date.now(),
+        // Calling a stored native timer as this.setTimer/clearTimer gives it
+        // the limiter as receiver, which browser timer APIs reject.
+        setTimer = (callback, delay) => globalThis.setTimeout(callback, delay),
+        clearTimer = timer => globalThis.clearTimeout(timer)
+    } = {}) {
         if (!(Number(intervalMs) >= 0)) throw new TypeError('intervalMs must be a non-negative number.');
         if (typeof deliver !== 'function') throw new TypeError('deliver must be a function.');
         this.intervalMs = Number(intervalMs);

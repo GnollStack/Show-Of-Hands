@@ -19,7 +19,10 @@ function choiceEntries(choices, selected) {
 function getDiagnosticsText() {
     try {
         const api = game.modules.get(MODULE_ID)?.api;
-        const state = api?.diagnostics?.actions?.getStatus?.() ?? api?.getDebugState?.() ?? {};
+        const status = api?.diagnostics?.actions?.getStatus?.();
+        const state = status?.success === false
+            ? { ...status, debugState: api?.getDebugState?.() ?? {} }
+            : (status ?? api?.getDebugState?.() ?? {});
         return JSON.stringify(state, null, 2);
     } catch (e) {
         return JSON.stringify({ error: e.message }, null, 2);
