@@ -5,8 +5,8 @@
 **A simple module for targeting faster, drawing marquee selections, and making every cursor at the table feel intentional and immersive.**
 
 [![Latest Release](https://img.shields.io/github/v/release/GnollStack/Show-Of-Hands?label=Latest%20Release&style=flat-square)](https://github.com/GnollStack/Show-Of-Hands/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/GnollStack/Show-Of-Hands/total?style=flat-square&color=green)](https://github.com/GnollStack/Show-Of-Hands/releases)
-[![Downloads@latest](https://img.shields.io/github/downloads/GnollStack/Show-Of-Hands/latest/total?style=flat-square)](https://github.com/GnollStack/Show-Of-Hands/releases/latest)
+[![Package Downloads](https://img.shields.io/github/downloads/GnollStack/Show-Of-Hands/show-of-hands.zip?label=Package%20Downloads&style=flat-square&color=green)](https://github.com/GnollStack/Show-Of-Hands/releases)
+[![Latest Package Downloads](https://img.shields.io/github/downloads/GnollStack/Show-Of-Hands/latest/show-of-hands.zip?label=Latest%20Package%20Downloads&style=flat-square)](https://github.com/GnollStack/Show-Of-Hands/releases/latest)
 [![Foundry VTT](https://img.shields.io/badge/Foundry-v14-orange?style=flat-square)](https://foundryvtt.com)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Buy%20a%20Steak-FF5E5B?style=flat-square&logo=ko-fi&logoColor=white)](https://ko-fi.com/gnollstack)
 
