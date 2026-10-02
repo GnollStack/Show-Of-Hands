@@ -1,0 +1,653 @@
+<div style="text-align: center;">
+<h1 id="show-of-hands">Show of Hands</h1>
+<p><strong>Faster targeting, marquee selection, and custom cursors for Foundry VTT.</strong></p>
+<p><a href="https://github.com/GnollStack/Show-Of-Hands/releases/latest"><img src="https://img.shields.io/github/v/release/GnollStack/Show-Of-Hands?label=Latest%20Release&amp;style=flat-square" alt="Latest Release" /></a>
+<a href="https://github.com/GnollStack/Show-Of-Hands/releases"><img src="https://img.shields.io/github/downloads/GnollStack/Show-Of-Hands/show-of-hands.zip?label=Downloads&amp;style=flat-square&amp;color=green" alt="Downloads" /></a>
+<a href="https://github.com/GnollStack/Show-Of-Hands/releases/latest"><img src="https://img.shields.io/github/downloads/GnollStack/Show-Of-Hands/latest/show-of-hands.zip?label=Latest%20Downloads&amp;style=flat-square" alt="Latest Downloads" /></a>
+<a href="https://foundryvtt.com"><img src="https://img.shields.io/badge/Foundry-v14-orange?style=flat-square" alt="Foundry VTT v14" /></a>
+<a href="https://ko-fi.com/gnollstack"><img src="https://img.shields.io/badge/Ko--fi-Buy%20a%20Steak-FF5E5B?style=flat-square&amp;logo=ko-fi&amp;logoColor=white" alt="Ko-fi" /></a>
+<a href="https://www.patreon.com/cw/GnollStack"><img src="https://img.shields.io/badge/Patreon-Bazaar%20Patron-F96854?style=flat-square&amp;logo=patreon&amp;logoColor=white" alt="Patreon: Bazaar Patron" /></a>
+<a href="https://discord.gg/bGQDnyqYJ"><img src="https://img.shields.io/badge/Discord-Bakshi%27s%20Bazaar-5865F2?style=flat-square&amp;logo=discord&amp;logoColor=white" alt="Discord: Bakshi's Bazaar" /></a></p>
+<p><em>Who doesn't like customized cursors!?</em></p>
+<p><a href="#preview">Preview</a> · <a href="#quick-start">Quick Start</a> · <a href="#features">Features</a> · <a href="#use-it-for">Use It For</a> · <a href="#installation">Installation</a> · <a href="#compatibility">Compatibility</a> · <a href="#developer-api">API</a> · <a href="#bakshis-bazaar">Bakshi's Bazaar</a> · <a href="#community">Community</a> · <a href="#contributing">Contributing</a> · <a href="#ai-assisted-development">AI Use</a> · <a href="#support-development">Support</a> · <a href="#license-permissions">License</a></p>
+</div>
+<hr />
+<div style="text-align: center;">
+<h2 id="feature-index">Feature Index</h2>
+<table style="margin-left: auto; margin-right: auto;">
+<thead>
+<tr>
+<th style="text-align:left">Feature</th>
+<th style="text-align:left">What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left"><strong><a href="#middle-mouse-targeting">Middle-Mouse Targeting</a></strong></td>
+<td style="text-align:left">Target tokens instantly without switching canvas tools.</td>
+</tr>
+<tr>
+<td style="text-align:left"><strong><a href="#marquee-box-select">Marquee Box Select</a></strong></td>
+<td style="text-align:left">Drag a rectangle to target groups quickly, with optional filters.</td>
+</tr>
+<tr>
+<td style="text-align:left"><strong><a href="#custom-cursors">Custom Cursors</a></strong></td>
+<td style="text-align:left">Give Foundry per-state cursor art, hotspot control, and live previews.</td>
+</tr>
+<tr>
+<td style="text-align:left"><strong><a href="#multiplayer-cursor-sharing">Multiplayer Cursor Sharing</a></strong></td>
+<td style="text-align:left">See where other players are pointing without relying on the default cursor dot alone.</td>
+</tr>
+<tr>
+<td style="text-align:left"><strong><a href="#shared-cursor-name-labels">Cursor Name Labels</a></strong></td>
+<td style="text-align:left">Place movable player labels next to shared cursors.</td>
+</tr>
+</tbody>
+</table>
+<p><em>Foundry already has targeting and cursor presence. Show of Hands makes them faster, more visible, and easier to customize.</em></p>
+</div>
+<hr />
+<div style="text-align: center;">
+<h2 id="preview">Preview</h2>
+</div>
+<div style="text-align: center;">
+<a href="https://raw.githubusercontent.com/GnollStack/Bakshi-s-Bazaar-Media/main/show-of-hands/gifs/show-of-hands-preview.gif"><img width="1608" height="660" alt="Show of Hands targeting and shared cursors" src="https://raw.githubusercontent.com/GnollStack/Bakshi-s-Bazaar-Media/main/show-of-hands/gifs/show-of-hands-preview.gif" style="max-width: 100%; height: auto;" decoding="async" /></a>
+</div>
+<hr />
+<div style="text-align: center;">
+<h2 id="quick-start">Quick Start</h2>
+</div>
+<ol>
+<li>Install and enable <strong>Show of Hands</strong> in your world.</li>
+<li>Open <strong>Configure Settings &gt; Module Settings &gt; Show of Hands</strong>.</li>
+<li>Set <strong>Middle-Mouse Actions</strong> to <strong>Click + Drag</strong> for both single-token targeting and marquee selection.</li>
+<li>Open <strong>Cursor Settings</strong> to choose cursor images, hotspots, cursor sizes, and shared overlay name placement.</li>
+<li>Set <strong>Cursor Sharing Mode</strong> to decide whether you share your cursor, receive only, or stay private.</li>
+</ol>
+<hr />
+<div style="text-align: center;">
+<h2 id="features">Features</h2>
+</div>
+<h3 id="middle-mouse-targeting">Middle-Mouse Targeting</h3>
+<p><strong>Target tokens with the mousewheel button instead of swapping to the targeting tool.</strong></p>
+<ul>
+<li><strong>Middle-click</strong> a token to target it.</li>
+<li><strong>Shift + Middle-click</strong> a token to add it to your existing targets.</li>
+<li><strong>Middle-click empty canvas</strong> to clear your current targets when that setting is enabled.</li>
+<li><strong>Shift + Middle-click empty canvas</strong> keeps existing targets.</li>
+<li>Works like pressing <code>T</code>, but without interrupting your active tool.</li>
+</ul>
+<hr />
+
+<h3 id="marquee-box-select">Marquee Box Select</h3>
+<p>Hold the middle mouse button and drag to target several tokens at once.</p>
+<ul>
+<li><strong>Middle-click + drag</strong> draws a selection rectangle on the canvas.</li>
+<li><strong>Shift + drag</strong> adds selected tokens to your current targets.</li>
+<li>Dragging over empty space without Shift clears targets.</li>
+<li>Optional token filters can limit marquee selection to hostile, neutral, friendly, or non-friendly tokens.</li>
+<li>Optional level filtering can limit marquee targeting to the currently viewed Scene Level when Foundry exposes one.</li>
+<li>GMs and co-GMs can target all tokens, including hidden ones.</li>
+<li>Players can only target tokens visible to them.</li>
+</ul>
+<div style="text-align: center;">
+<a href="https://raw.githubusercontent.com/GnollStack/Bakshi-s-Bazaar-Media/main/show-of-hands/images/show-of-hands-marquee-select.png"><img width="1027" height="863" alt="Marquee box selection targeting several tokens" src="https://raw.githubusercontent.com/GnollStack/Bakshi-s-Bazaar-Media/main/show-of-hands/images/show-of-hands-marquee-select.png" style="max-width: 100%; height: auto;" loading="lazy" decoding="async" /></a>
+</div>
+<details>
+<summary><strong>Marquee targeting details</strong></summary>
+<ul>
+<li>Drag threshold is <code>10</code> pixels before the gesture becomes a marquee selection.</li>
+<li>Single-click targeting and drag marquee targeting are controlled together by <strong>Middle-Mouse Actions</strong>: Off, Click to Target, Drag Marquee, or Click + Drag.</li>
+<li>Marquee filters live in <strong>Advanced Settings</strong> to keep the normal settings list compact.</li>
+<li>Scene Level filtering is only used when the runtime exposes level context and <strong>Advanced Settings &gt; Marquee Targeting &gt; Level Filter</strong> is set to <strong>Viewed Level Only</strong>.</li>
+</ul>
+</details>
+<hr />
+
+<h3 id="custom-cursors">Custom Cursors</h3>
+<p>Replace Foundry's default browser cursor with your own image for each cursor state.</p>
+<table>
+<thead>
+<tr>
+<th>State</th>
+<th>When Active</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Default</td>
+<td>Normal cursor on the canvas and UI.</td>
+</tr>
+<tr>
+<td>Hover</td>
+<td>Mouse is over a token or clickable Foundry UI control.</td>
+</tr>
+<tr>
+<td>Pressed / Held</td>
+<td>Primary mouse button is down during a default or clickable interaction, after press and before release/cancellation. Dragging keeps its separate cursor.</td>
+</tr>
+<tr>
+<td>Hover To Drag</td>
+<td>Mouse is over draggable headers, rows, or drag sources.</td>
+</tr>
+<tr>
+<td>Dragging</td>
+<td>A draggable UI element is actively being dragged.</td>
+</tr>
+<tr>
+<td>Resize</td>
+<td>Mouse is over a window resize handle.</td>
+</tr>
+<tr>
+<td>Text Editing</td>
+<td>Mouse is over a text field or editor.</td>
+</tr>
+<tr>
+<td>Targeting</td>
+<td>Targeting tool is active.</td>
+</tr>
+<tr>
+<td>Panning</td>
+<td>Right-click dragging to pan.</td>
+</tr>
+</tbody>
+</table>
+<p>Per-state customization includes FilePicker-backed image paths, click hotspot position, rotation from <code>0-359</code> degrees, width and height controls, aspect-ratio locking, state enablement, live preview, native fallback previews, and profile copy/reset controls. Hotspot sliders use the loaded source image's pixel dimensions, then scale that point with the image into the browser's 128px cursor limit. Show of Hands ships without cursor artwork; leave an image path empty to use Foundry's native cursor for that state.</p>
+<div style="text-align: center;">
+<a href="https://raw.githubusercontent.com/GnollStack/Bakshi-s-Bazaar-Media/main/show-of-hands/images/show-of-hands-cursor-settings.png"><img width="947" height="896" alt="Cursor Settings window with per-state images and live preview" src="https://raw.githubusercontent.com/GnollStack/Bakshi-s-Bazaar-Media/main/show-of-hands/images/show-of-hands-cursor-settings.png" style="max-width: 100%; height: auto;" loading="lazy" decoding="async" /></a>
+</div>
+<details>
+<summary><strong>Cursor configuration details</strong></summary>
+<p>Click <strong>Cursor Settings</strong> in module settings to open the configuration UI. GMs can choose a player at the top of the window before saving; connected players automatically apply GM changes to their own cursor profile.</p>
+<p>For each cursor state you can:</p>
+<ol>
+<li>Set an image by typing a path or using the Browse button to choose a file available to Foundry.</li>
+<li>Clear the image path to use Foundry's native cursor for that state.</li>
+<li>Adjust the hotspot with X and Y sliders.</li>
+<li>Rotate the cursor from <code>0-359</code> degrees.</li>
+<li>Resize it with width and height controls.</li>
+<li>Enable or disable non-default states.</li>
+<li>Preview each state's native fallback cursor directly in the config UI.</li>
+<li>In the Default tab, drag the preview label or use preset buttons to position the module's shared overlay name.</li>
+<li>Reset a profile to defaults or copy a profile from another player.</li>
+</ol>
+<p>The live preview shows the cursor image with a red dot marking the hotspot. The draggable name label controls only the module's shared overlay name; Foundry's built-in cursor name is configured separately through <strong>Built-In Foundry Cursor Elements</strong>. Players can use their own cursor image files anywhere Foundry's FilePicker can read them.</p>
+</details>
+<hr />
+
+<h3 id="multiplayer-cursor-sharing">Multiplayer Cursor Sharing</h3>
+<p>See other players' cursors on the canvas in real time. Each shared cursor appears as either the player's synced custom cursor image or a colored arrow fallback using that player's Foundry color.</p>
+<ul>
+<li>Cursor positions update about 30 times a second, with smoothing so remote motion stays readable.</li>
+<li>Custom cursor images are shared between players.</li>
+<li>Cursor size stays the same at any canvas zoom.</li>
+<li><strong>Shared Cursor Size</strong> controls the final on-screen size for remote cursors.</li>
+<li>Only cursors from players on the same scene are shown.</li>
+<li>Cursor images refresh when sharing is turned on after other players have already connected.</li>
+<li><strong>Cursor Sharing Mode</strong> can share your cursor, receive only, or fully hide your cursor from others.</li>
+<li>Sharing respects Foundry's core <strong>Display Mouse Cursor</strong> permission.</li>
+<li>Per-player visibility controls can hide specific shared cursors locally.</li>
+<li>Shared cursors auto-fade after <code>5</code> seconds of inactivity unless fade is disabled in advanced settings.</li>
+</ul>
+<details>
+<summary><strong>Privacy and visibility details</strong></summary>
+<p><strong>Cursor Sharing Mode</strong> has three options:</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Share My Cursor</td>
+<td>Send your module cursor and receive others.</td>
+</tr>
+<tr>
+<td>Receive Only</td>
+<td>Hide your cursor from others while still seeing shared cursors locally.</td>
+</tr>
+<tr>
+<td>Private</td>
+<td>Hide your cursor from others, including Foundry's built-in cursor dot and name.</td>
+</tr>
+</tbody>
+</table>
+<p>Private mode also wraps native cursor activity so canvas pings do not reveal your cursor through Foundry's built-in cursor display.</p>
+</details>
+<hr />
+
+<h3 id="shared-cursor-name-labels">Shared Cursor Name Labels</h3>
+<p>Place a player name label next to each shared cursor. The module overlay label is separate from Foundry's built-in cursor name. You can use preset positions or drag the label into a custom position in the Default tab of the Cursor Settings preview. Per-user positioning is synced to other clients.</p>
+<p>When <strong>Show Shared Cursor Names (Overlay)</strong> is enabled, the module hides Foundry's default white cursor name only for peers who have an active Show of Hands overlay, while preserving the native color dot when applicable. Native-only and Receive Only peers keep their Foundry name, so nobody shows up with two labels or an anonymous dot.</p>
+<hr />
+
+<h3 id="built-in-foundry-cursor-elements">Built-In Foundry Cursor Elements</h3>
+<p>Control Foundry's native cursor dot and name independently from the module overlay.</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>What's Shown</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Show Player Names &amp; Color Dots</td>
+<td>Both Foundry default elements visible.</td>
+</tr>
+<tr>
+<td>Show Only Player Names</td>
+<td>Foundry name label visible, color dot hidden.</td>
+</tr>
+<tr>
+<td>Show Only Color Dots</td>
+<td>Color dot visible, Foundry name label hidden.</td>
+</tr>
+<tr>
+<td>Hide Both</td>
+<td>All Foundry default cursor elements hidden.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+
+<h3 id="more-details">More Details</h3>
+<details>
+<summary><strong>Idle identity fade-in</strong></summary>
+<p>When the hidden advanced <strong>Show Identity on Idle</strong> setting is enabled and some Foundry elements are hidden, those hidden elements fade in as a player's cursor fades out after going idle.</p>
+<table>
+<thead>
+<tr>
+<th>Foundry Elements Setting</th>
+<th>What Fades In on Idle</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Hide Both</td>
+<td>Both name and color dot.</td>
+</tr>
+<tr>
+<td>Show Only Player Names</td>
+<td>Color dot.</td>
+</tr>
+<tr>
+<td>Show Only Color Dots</td>
+<td>Player name.</td>
+</tr>
+<tr>
+<td>Show Player Names &amp; Color Dots</td>
+<td>Nothing.</td>
+</tr>
+</tbody>
+</table>
+</details>
+<details>
+<summary><strong>Advanced settings</strong></summary>
+<p>Open <strong>Advanced Settings</strong> from module settings to tune less-common behavior without crowding the main Foundry settings list.</p>
+<ul>
+<li>Adjust shared cursor opacity and fade behavior.</li>
+<li>Filter marquee targeting by token disposition.</li>
+<li>Filter marquee targeting to the current viewed Scene Level when scene level context is available.</li>
+<li>Hide specific players' shared cursors on your own client.</li>
+<li>View and copy diagnostics for troubleshooting.</li>
+</ul>
+</details>
+<details>
+<summary><strong>Troubleshooting</strong></summary>
+<p><strong>Cursors not appearing for other players:</strong></p>
+<ul>
+<li>Make sure the player whose cursor is missing has <strong>Cursor Sharing Mode</strong> set to <strong>Share My Cursor</strong>.</li>
+<li>Make sure Foundry's <strong>Display Mouse Cursor</strong> permission is enabled for that player role.</li>
+<li>Make sure that player is not using <strong>Private</strong> mode.</li>
+<li>Verify both players are on the same scene.</li>
+<li>Switch <strong>Cursor Sharing Mode</strong> back to <strong>Share My Cursor</strong> to rebroadcast that player's cursor image.</li>
+<li>Check the browser console (<code>F12</code>) for errors.</li>
+<li>Set Debug Mode to <strong>Cursor Sharing</strong> to see socket messages.</li>
+</ul>
+<p><strong>Custom cursor not displaying:</strong></p>
+<ul>
+<li>Ensure the image path is valid and the file exists.</li>
+<li>Keep cursor images at <code>128x128</code> or smaller for best browser compatibility.</li>
+<li>Clear the image path to confirm the native cursor fallback, then choose a known-good image file through Browse.</li>
+<li>Set Debug Mode to <strong>Cursor CSS &amp; Settings</strong> for detailed logging.</li>
+</ul>
+<p><strong>Shared cursor name placement not behaving as expected:</strong></p>
+<ul>
+<li>Enable <strong>Show Shared Cursor Names (Overlay)</strong> to see the module's movable label.</li>
+<li>Foundry's default white cursor name is hidden only when that peer has an active module overlay; native-only peers keep their Foundry label.</li>
+<li>Use the Default tab in <strong>Cursor Settings</strong> to drag the overlay name label or choose a preset position.</li>
+<li>Name placement uses the same fixed screen-space offsets in the preview and live overlay; changing a viewer's Shared Cursor Size scales the art without multiplying the saved label offset.</li>
+</ul>
+<p><strong>Middle-mouse targeting not working:</strong></p>
+<ul>
+<li>Verify <strong>Middle-Mouse Actions</strong> is set to <strong>Click to Target</strong> or <strong>Click + Drag</strong>.</li>
+<li>Make sure you're clicking directly on a token.</li>
+<li>If you moved the mouse more than the marquee threshold before release, the click is treated as a drag gesture instead of a single-target click.</li>
+<li>Some mice and trackpads may not have a middle button.</li>
+</ul>
+<p><strong>Marquee box select not working:</strong></p>
+<ul>
+<li>Verify <strong>Middle-Mouse Actions</strong> is set to <strong>Drag Marquee</strong> or <strong>Click + Drag</strong>.</li>
+<li>Make sure you drag at least <code>10</code> pixels to trigger the selection rectangle.</li>
+<li>Marquee selection can remain enabled even when middle-click targeting is disabled.</li>
+<li>Check <strong>Advanced Settings &gt; Marquee Targeting</strong> if a token disposition or level filter is active.</li>
+<li>Players can only target tokens visible to them.</li>
+<li>Set Debug Mode to <strong>Marquee Box Select</strong> to see selection details.</li>
+</ul>
+<p>Set <strong>Debug Mode</strong> in module settings to focus console output:</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Use For</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cursor CSS &amp; Settings</td>
+<td>Cursor settings migration, image load checks, generated cursor CSS.</td>
+</tr>
+<tr>
+<td>State Detection</td>
+<td>Token hover, active targeting tool, and panning cursor classes.</td>
+</tr>
+<tr>
+<td>Cursor Sharing</td>
+<td>Socket messages, cursor image broadcasts, cursor image requests.</td>
+</tr>
+<tr>
+<td>Marquee Box Select</td>
+<td>Middle-click targeting, drag threshold, selected token counts.</td>
+</tr>
+</tbody>
+</table>
+<p>Useful browser console checks:</p>
+<pre><code class="language-javascript">game.settings.get(&quot;show-of-hands&quot;, &quot;settings-version&quot;)
+game.settings.get(&quot;show-of-hands&quot;, &quot;middle-mouse-actions&quot;)
+game.settings.get(&quot;show-of-hands&quot;, &quot;cursor-sharing-mode&quot;)
+game.user.getFlag(&quot;show-of-hands&quot;, &quot;cursorConfig&quot;)
+game.activeTool
+document.getElementById(&quot;board&quot;)?.classList.toString()
+</code></pre>
+<p>The module also exposes a compact support snapshot in the console:</p>
+<pre><code class="language-javascript">game.modules.get(&quot;show-of-hands&quot;).api.getDebugState()
+ShowOfHands.getDebugState()
+</code></pre>
+</details>
+<details>
+<summary><strong>Diagnostics (MCP Bridge)</strong></summary>
+<p>For MCP Diagnostics through Foundry MCP Bridge, enable <strong>Debug Mode</strong> as a GM and turn on <strong>Enable MCP Diagnostics</strong>. These controls are advanced GM-only troubleshooting tools and can stay disabled during normal play. The available actions are listed under <a href="#developer-api">Developer API</a>.</p>
+<p>The normal hard refresh path from MCP is the bridge-level <code>reload-foundry-client</code> tool. The module-level <code>refreshClient({ delayMs })</code> action is also available so this module's own diagnostics gate can be tested.</p>
+<p><code>validateV14Runtime()</code> is read-only and checks the V14 ApplicationV2, DialogV2, cursor, FilePicker, FormDataExtended, and canvas cursor contracts used by the module. It also reports Scene Levels observations when Foundry exposes them.</p>
+<p>A diagnostic warning that legacy <code>cursor-states</code> differs from <code>flags.show-of-hands.cursorConfig</code> is expected after per-user profiles exist. The user flag profile is canonical.</p>
+<p>Mutating fixture checks are paired with <strong>Enable MCP Diagnostics</strong> and still require an explicit <code>confirmMutation: true</code> argument. Automation creates temporary active-scene token fixtures named with the <code>SOH-MCP-FIXTURE</code> prefix and flagged with <code>flags.show-of-hands.mcpAutomationFixture</code>. Cleanup recognizes old <code>TTB-MCP-FIXTURE</code> fixtures for compatibility, but new automation uses the Show of Hands prefix. Keep MCP diagnostics disabled during normal play and use automation only in dedicated test worlds.</p>
+</details>
+<hr />
+<div style="text-align: center;">
+<h2 id="use-it-for">Use It For</h2>
+</div>
+<table>
+<thead>
+<tr>
+<th>Use case</th>
+<th>What it looks like</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Fast combat targeting</strong></td>
+<td>Middle-click enemies without changing canvas tools.</td>
+</tr>
+<tr>
+<td><strong>Area targeting</strong></td>
+<td>Drag a marquee over a cluster of visible tokens and target the whole group at once.</td>
+</tr>
+<tr>
+<td><strong>Table presence</strong></td>
+<td>Show player cursors with readable, movable name labels.</td>
+</tr>
+<tr>
+<td><strong>Cursor theming</strong></td>
+<td>Give the whole Foundry UI custom cursor art for hover, drag, targeting, panning, and text states.</td>
+</tr>
+<tr>
+<td><strong>Privacy</strong></td>
+<td>Receive other cursors while hiding your own, or go fully private when needed.</td>
+</tr>
+</tbody>
+</table>
+<details>
+<summary><strong>Recipe: quick group target</strong></summary>
+<ol>
+<li>Set <strong>Middle-Mouse Actions</strong> to <strong>Click + Drag</strong>.</li>
+<li>Hold the middle mouse button on the canvas.</li>
+<li>Drag across the tokens you want to target.</li>
+<li>Release to replace your current targets, or hold Shift while dragging to add to them.</li>
+</ol>
+</details>
+<details>
+<summary><strong>Recipe: shared cursor labels</strong></summary>
+<ol>
+<li>Enable <strong>Show Shared Cursor Names (Overlay)</strong>.</li>
+<li>Open <strong>Cursor Settings</strong>.</li>
+<li>Use the Default tab preview to drag the overlay label or choose a preset.</li>
+<li>Set <strong>Built-In Foundry Cursor Elements</strong> to show only the native color dot, or hide both native elements.</li>
+</ol>
+</details>
+<hr />
+<div style="text-align: center;">
+<h2 id="installation">Installation</h2>
+</div>
+<ol>
+<li>Foundry -&gt; <strong>Add-on Modules</strong> -&gt; <strong>Install Module</strong>.</li>
+<li>Search for &quot;Show of Hands&quot;, or paste this manifest URL:</li>
+</ol>
+<pre><code class="language-text">https://github.com/GnollStack/Show-Of-Hands/releases/latest/download/module.json
+</code></pre>
+<blockquote>
+<p><strong>Important:</strong> <code>show-of-hands</code> and the legacy <code>target-the-beastie</code> are distinct Foundry packages. Install Show of Hands, disable the legacy module, and never enable both together. On first load, Show of Hands imports compatible legacy settings and the local user's cursor profile. Verify the migrated profile before uninstalling the legacy package.</p>
+</blockquote>
+<ol start="3">
+<li>Enable the module in your world.</li>
+<li>Configure it under <strong>Module Settings &gt; Show of Hands</strong>.</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Requirement</th>
+<th>Version</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Foundry VTT</td>
+<td>v14 required; verified on 14.367</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<div style="text-align: center;">
+<h2 id="compatibility">Compatibility</h2>
+</div>
+<p><strong>Module version:</strong> <code>14.2.2</code></p>
+<p><strong>Foundry VTT:</strong> v14 required; verified on <strong>14.367</strong>.</p>
+<p><strong>Game systems:</strong> works in any system; tested in <strong>dnd5e 5.3.3</strong>. Targeting, cursor styling, and cursor sharing work at the canvas and UI level and don't use dnd5e data.</p>
+<p><strong>Browsers:</strong> cursor customization relies on browser cursor image support. Keep cursor images at <code>128x128</code> or smaller for best compatibility.</p>
+<details>
+<summary><strong>Scene Levels notes</strong></summary>
+<p>The optional viewed-level marquee filter only activates when Foundry exposes scene level observations. If no level context is available, marquee targeting continues to operate on visible tokens normally.</p>
+</details>
+<details>
+<summary><strong>Foundry cursor permission notes</strong></summary>
+<p>Cursor sharing respects Foundry's core <strong>Display Mouse Cursor</strong> permission. If that permission blocks a player role, the module will not force that player's cursor to appear through the normal sharing path.</p>
+</details>
+<hr />
+<div style="text-align: center;">
+<h2 id="developer-api">Developer API</h2>
+</div>
+<p>Access:</p>
+<pre><code class="language-javascript">const api = game.modules.get(&quot;show-of-hands&quot;).api;
+</code></pre>
+<p>Show of Hands' public API is small and support-oriented.</p>
+<details>
+<summary><strong>Support state and cursor utilities</strong></summary>
+<pre><code class="language-javascript">api.getDebugState()
+api.refreshSharedCursorImage()
+api.syncHiddenRemoteCursors()
+</code></pre>
+<p><code>getDebugState()</code> also exists on the global helper:</p>
+<pre><code class="language-javascript">ShowOfHands.getDebugState()
+</code></pre>
+</details>
+<details>
+<summary><strong>Diagnostics actions</strong></summary>
+<pre><code class="language-javascript">api.diagnostics.actions.getStatus()
+api.diagnostics.actions.validateSettings()
+api.diagnostics.actions.validateAssets()
+api.diagnostics.actions.validateV14Runtime()
+api.diagnostics.actions.collectClientDiagnostics()
+api.diagnostics.actions.runSmokeTests()
+api.diagnostics.actions.validateCursorConfig()
+api.diagnostics.actions.validateCursorAssets()
+api.diagnostics.actions.openWindow({ window: &quot;cursor&quot; })
+api.diagnostics.actions.refreshClient({ delayMs: 250 })
+</code></pre>
+<p>Read-only diagnostics are gated behind GM-only debug settings. Mutating fixture automation additionally requires <code>confirmMutation: true</code>:</p>
+<pre><code class="language-javascript">api.diagnostics.actions.runAutomation({ confirmMutation: true })
+api.diagnostics.actions.cleanupFixtures({ confirmMutation: true })
+</code></pre>
+</details>
+<details>
+<summary><strong>Notes for other module authors</strong></summary>
+<ul>
+<li>Foundry stores <code>--cursor-*</code> values inline on the root element; overriding them only in a stylesheet can leave the native cursor active.</li>
+<li>Hover states use CSS selectors and Foundry's native cursor families rather than document-wide JavaScript hover listeners.</li>
+</ul>
+</details>
+<h3 id="example-macros">Example macros</h3>
+<p><strong>Copy a compact debug snapshot to the console.</strong></p>
+<pre><code class="language-javascript">console.log(game.modules.get(&quot;show-of-hands&quot;).api.getDebugState());
+</code></pre>
+<p><strong>Refresh the shared cursor image after changing a cursor asset.</strong></p>
+<pre><code class="language-javascript">game.modules.get(&quot;show-of-hands&quot;).api.refreshSharedCursorImage();
+</code></pre>
+<p><strong>Open the cursor configuration window through diagnostics.</strong> Requires the diagnostics gates to be enabled.</p>
+<pre><code class="language-javascript">game.modules.get(&quot;show-of-hands&quot;).api.diagnostics.actions.openWindow({ window: &quot;cursor&quot; });
+</code></pre>
+<hr />
+<div style="text-align: center;">
+<h2 id="bakshis-bazaar">Bakshi's Bazaar</h2>
+<p><em>Show of Hands is free. My premium modules are released as <strong>Bakshi's Bazaar</strong> for <a href="https://www.patreon.com/cw/GnollStack">Bazaar Patrons</a> and install through Foundry's Premium Content.</em></p>
+</div>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>What it adds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong><a href="https://foundryvtt.com/packages/5e-activity-importer">5e Activity Importer</a></strong></td>
+<td>Adds activities and Active Effects to dnd5e Items from YAML, or imports complete Items together with 5e Item Importer.</td>
+</tr>
+<tr>
+<td><strong><a href="https://foundryvtt.com/packages/custom-currency-5e">Custom Currency 5e</a></strong></td>
+<td>Custom coins, exchange rates, regional markets, and physical coin items on native dnd5e sheets.</td>
+</tr>
+<tr>
+<td><strong><a href="https://foundryvtt.com/packages/filesmith">FileSmith</a></strong></td>
+<td>Folder colors, multi-select, clipboard actions, and move undo for Foundry's sidebar.</td>
+</tr>
+<tr>
+<td><strong><a href="https://foundryvtt.com/packages/immersive-vision-fx">Immersive Vision FX</a></strong></td>
+<td>Soft vision and light edges, creature vision profiles, cave light, and eyeshine.</td>
+</tr>
+<tr>
+<td><strong><a href="https://foundryvtt.com/packages/traffick">Traffick</a></strong></td>
+<td>Party trading, merchant catalogs, perceived prices, and appraisal checks for dnd5e.</td>
+</tr>
+</tbody>
+</table>
+<p>A Bazaar Patron membership includes:</p>
+<ul>
+<li>Every Bakshi's Bazaar premium module while your membership is active, including ongoing updates and new modules as they're added.</li>
+<li>Patron-only channels in the <a href="https://discord.gg/bGQDnyqYJ">Bakshi's Bazaar Discord</a>.</li>
+<li>Priority module support.</li>
+<li>A direct place to share feedback and feature suggestions. Suggestions are welcome and taken seriously, but development priorities remain at my discretion.</li>
+</ul>
+<p>Everyone is welcome in the <a href="https://discord.gg/bGQDnyqYJ">Bakshi's Bazaar Discord</a>: the public channels cover release announcements, questions, and feature ideas, and patrons also get the patron-only channels and priority support. Bug reports for Show of Hands still go to <a href="https://github.com/GnollStack/Show-Of-Hands/issues">GitHub issues</a>, as described under Community.</p>
+<hr />
+<div style="text-align: center;">
+<h2 id="community">Community</h2>
+</div>
+<ul>
+<li><strong>Report bugs</strong> - <a href="https://github.com/GnollStack/Show-Of-Hands/issues">open an issue</a> with your Foundry version, module version, steps to reproduce, console logs, and screenshots or short clips when useful.</li>
+<li><strong>Ask on Discord</strong> - anyone can ask questions in the public channels of the <a href="https://discord.gg/bGQDnyqYJ">Bakshi's Bazaar Discord</a>. Bazaar Patrons get priority support in the patron-only channels.</li>
+<li><strong>Request features</strong> - tell me what happened at your table and what you wish the module could do.</li>
+<li><strong>Star the repo</strong> - if the module is useful at your table, a star helps other GMs find it.</li>
+<li><strong>Watch releases</strong> - follow the repo for updates, compatibility notes, and new feature releases.</li>
+</ul>
+<hr />
+<div style="text-align: center;">
+<h2 id="contributing">Contributing</h2>
+</div>
+<p>Bug reports, feature ideas, reproduction notes, documentation fixes, and localization ideas are welcome.</p>
+<p>I am not generally accepting unsolicited code PRs for features, refactors, architecture, or behavior changes. This is still my module and my codebase; I will decide how features are designed and implemented unless I explicitly say otherwise.</p>
+<ul>
+<li><strong>Bug reports</strong> - include Foundry version, module version, a console log, and the steps to reproduce. Screenshots or short clips help a lot.</li>
+<li><strong>Feature requests</strong> - tell me what happened at your table and what you wish the module could do.</li>
+<li><strong>Pull requests</strong> - please do not open code PRs unless I ask for one. Open an issue with the idea instead.</li>
+<li><strong>Code ownership</strong> - core implementation, architecture, and release decisions remain with me unless stated otherwise.</li>
+<li><strong>Translations and docs</strong> - typo fixes, wording suggestions, and localization ideas are welcome by issue first. I do not have a public translation setup yet, so I will fold useful wording in myself.</li>
+</ul>
+<p>I may adapt, decline, or implement submitted ideas. Any accepted contribution or submitted project material may be released under the same EULA as the rest of the module.</p>
+<hr />
+<div style="text-align: center;">
+<h2 id="ai-assisted-development">AI-Assisted Development</h2>
+</div>
+<p>This module is developed and maintained with the help of AI-assisted tools for coding, debugging, and testing.</p>
+<p>I care about the quality, behavior, performance, security, and long-term maintainability of this module, and I take full responsibility for what ships. AI assistance does not replace review, testing, debugging, or security and design judgment.</p>
+<p>AI is used here as a tool under my direction to make Foundry better and allow for long term mod support while still having a life outside of building and maintaining my free and premium modules.</p>
+<p>If you are uncomfortable using software developed with AI-assisted tools, this module is not for you.</p>
+<hr />
+<div style="text-align: center;">
+<h2 id="support-development">Support Development</h2>
+<p>This module represents many hours of development.</p>
+<p>If this module made your table smoother, clearer, or just a little more stylish, consider supporting development:</p>
+<p><a href="https://ko-fi.com/gnollstack">Buy Me a Steak on Ko-fi</a></p>
+<blockquote>
+<p>&quot;Thanks for the support! It helps me maintain support for the module and puts a nice steak on the table.&quot;</p>
+</blockquote>
+</div>
+<hr />
+<div style="text-align: center;">
+<h2 id="license-permissions">License &amp; Permissions</h2>
+</div>
+<h3 id="proprietary-eula">Proprietary EULA</h3>
+<p>This module is licensed under the <strong>GnollStack Proprietary EULA</strong>.
+It is <strong>Free for Personal Use</strong>, meaning you can use it in your home games, stream it, or modify it for your own table without restriction.</p>
+<p>However, <strong>Commercial Redistribution is Strictly Prohibited.</strong>
+You may <strong>NOT</strong> sell this module, bundle it within paid content such as Patreon maps or adventures, or host it as a commercial service without prior written consent.</p>
+<h3 id="commercial-licensing">Commercial Licensing</h3>
+<p>I am open to partnerships. If you are a map maker, adventure writer, or developer who wishes to use this module commercially, please contact me. Commercial licenses are available for:</p>
+<ul>
+<li>Bundling this module with paid VTT content.</li>
+<li>Official integration into commercial systems.</li>
+<li>Custom feature development for your specific product.</li>
+</ul>
+<h3 id="contact">Contact</h3>
+<p>For licensing inquiries or permission slips:</p>
+<ul>
+<li><strong>Discord:</strong> <code>GnollStack</code> (Preferred)</li>
+<li><strong>Email:</strong> <code>Somedudeed@gmail.com</code></li>
+<li><em>Please do not open GitHub Issues for commercial licensing discussions. But feel free to contact me via Discord or Email.</em></li>
+</ul>
+<hr />
+<div style="text-align: center;">
+<p><strong>Author:</strong> <a href="https://github.com/GnollStack">GnollStack</a> - <strong>Compatibility:</strong> Foundry VTT v14 - <strong>Version:</strong> 14.2.2</p>
+<p><a href="#show-of-hands">Back to Top</a></p>
+</div>

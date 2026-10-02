@@ -26,6 +26,24 @@
   "manifest": "https://github.com/GnollStack/Show-Of-Hands/releases/latest/download/module.json",
   "download": "https://github.com/GnollStack/Show-Of-Hands/releases/download/V14.2.2/show-of-hands.zip",
   "license": "LICENSE.txt",
+  "changelog": "https://github.com/GnollStack/Show-Of-Hands/releases",
+  "media": [
+    {
+      "type": "cover",
+      "url": "https://raw.githubusercontent.com/GnollStack/Bakshi-s-Bazaar-Media/main/show-of-hands/gifs/show-of-hands-preview.gif",
+      "caption": "Show of Hands targeting and shared cursors"
+    },
+    {
+      "type": "screenshot",
+      "url": "https://raw.githubusercontent.com/GnollStack/Bakshi-s-Bazaar-Media/main/show-of-hands/images/show-of-hands-marquee-select.png",
+      "caption": "Marquee box selection targeting several tokens"
+    },
+    {
+      "type": "screenshot",
+      "url": "https://raw.githubusercontent.com/GnollStack/Bakshi-s-Bazaar-Media/main/show-of-hands/images/show-of-hands-cursor-settings.png",
+      "caption": "Cursor Settings window with per-state images and live preview"
+    }
+  ],
   "readme": "https://github.com/GnollStack/Show-Of-Hands/blob/main/README.md",
   "bugs": "https://github.com/GnollStack/Show-Of-Hands/issues",
   "socket": true,
