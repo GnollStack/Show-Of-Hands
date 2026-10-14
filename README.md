@@ -14,7 +14,7 @@
 
 *Who doesn't like customized cursors!?*
 
-[Preview](#preview) · [Quick Start](#quick-start) · [Features](#features) · [Use It For](#use-it-for) · [Installation](#installation) · [Compatibility](#compatibility) · [API](#developer-api) · [Bakshi's Bazaar](#bakshis-bazaar) · [Community](#community) · [Contributing](#contributing) · [AI Use](#ai-assisted-development) · [Support](#support-development) · [License](#license-permissions)
+[Preview](#preview) · [Quick Start](#quick-start) · [Features](#features) · [Use It For](#use-it-for) · [Installation](#installation) · [Changelog](https://github.com/GnollStack/Bakshi-s-Bazaar-Media/blob/main/show-of-hands/CHANGELOG.md) · [Compatibility](#compatibility) · [API](#developer-api) · [Bakshi's Bazaar](#bakshis-bazaar) · [Community](#community) · [Contributing](#contributing) · [AI Use](#ai-assisted-development) · [Support](#support-development) · [License](#license-permissions)
 
 </div>
 
@@ -411,7 +411,7 @@ https://github.com/GnollStack/Show-Of-Hands/releases/latest/download/module.json
 
 | Requirement | Version |
 | --- | --- |
-| Foundry VTT | v14 required; verified on 14.367 |
+| Foundry VTT | v14 only; verified on 14.367 |
 
 ---
 
@@ -425,7 +425,7 @@ https://github.com/GnollStack/Show-Of-Hands/releases/latest/download/module.json
 
 **Module version:** `14.2.2`
 
-**Foundry VTT:** v14 required; verified on **14.367**.
+**Foundry VTT:** v14 only; verified on **14.367**.
 
 **Game systems:** works in any system; tested in **dnd5e 5.3.3**. Targeting, cursor styling, and cursor sharing work at the canvas and UI level and don't use dnd5e data.
 

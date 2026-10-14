@@ -1,19 +1,21 @@
 {
   "id": "show-of-hands",
   "title": "Show of Hands: Targeting & Cursors",
-  "description": "Target tokens with middle-click, drag to marquee-select groups, and bring your table to life with immersive per-player custom cursors!",
-  "version": "14.2.2",
-  "compatibility": {
-    "minimum": "14",
-    "verified": "14.367"
-  },
+  "type": "module",
+  "description": "Target tokens with middle-click, select groups with a drag, and share custom per-player cursors with your table.",
+  "version": "14.2.3",
   "authors": [
     {
       "name": "GnollStack",
-      "discord": "GnollStack",
-      "flags": {}
+      "url": "https://github.com/GnollStack",
+      "discord": "GnollStack"
     }
   ],
+  "compatibility": {
+    "minimum": "14",
+    "verified": "14.367",
+    "maximum": "14"
+  },
   "esmodules": [
     "scripts/main.js"
   ],
@@ -22,11 +24,12 @@
       "src": "styles/cursor-config.css"
     }
   ],
-  "url": "https://github.com/GnollStack/Show-Of-Hands",
-  "manifest": "https://github.com/GnollStack/Show-Of-Hands/releases/latest/download/module.json",
-  "download": "https://github.com/GnollStack/Show-Of-Hands/releases/download/V14.2.2/show-of-hands.zip",
+  "socket": true,
   "license": "LICENSE.txt",
-  "changelog": "https://github.com/GnollStack/Show-Of-Hands/releases",
+  "url": "https://github.com/GnollStack/Show-Of-Hands",
+  "readme": "https://github.com/GnollStack/Show-Of-Hands/blob/main/README.md",
+  "bugs": "https://github.com/GnollStack/Show-Of-Hands/issues",
+  "changelog": "https://github.com/GnollStack/Bakshi-s-Bazaar-Media/blob/main/show-of-hands/CHANGELOG.md",
   "media": [
     {
       "type": "cover",
@@ -44,8 +47,6 @@
       "caption": "Cursor Settings window with per-state images and live preview"
     }
   ],
-  "readme": "https://github.com/GnollStack/Show-Of-Hands/blob/main/README.md",
-  "bugs": "https://github.com/GnollStack/Show-Of-Hands/issues",
-  "socket": true,
-  "flags": {}
+  "manifest": "https://github.com/GnollStack/Show-Of-Hands/releases/latest/download/module.json",
+  "download": "https://github.com/GnollStack/Show-Of-Hands/releases/download/V14.2.2/show-of-hands.zip"
 }
