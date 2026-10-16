@@ -1,0 +1,109 @@
+name: Bug report
+description: Report a reproducible issue with Show of Hands.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Clear reproduction details are the fastest path to a fix.
+
+  - type: input
+    id: foundry-version
+    attributes:
+      label: Foundry VTT version
+      description: Include the full version number if possible.
+      placeholder: "Example: 14.367"
+    validations:
+      required: true
+
+  - type: input
+    id: module-version
+    attributes:
+      label: Show of Hands version
+      description: You can find this in Foundry's Manage Modules or the module manifest.
+      placeholder: "Example: 14.2.3"
+    validations:
+      required: true
+
+  - type: textarea
+    id: system-browser-client
+    attributes:
+      label: Game system, browser, and client details
+      description: Include your game system and version, browser or desktop app, and OS if relevant.
+      placeholder: |
+        Game system and version:
+        Browser or app:
+        Operating system:
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Feature affected
+      options:
+        - Middle-mouse targeting
+        - Marquee box select
+        - Custom cursors
+        - Multiplayer cursor sharing
+        - Shared cursor name labels
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: active-modules
+    attributes:
+      label: Active token, targeting, cursor, or UI modules
+      description: List other modules that may affect targeting, selection, cursors, or the canvas.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Tell me exactly what you clicked or configured before the issue happened.
+      placeholder: |
+        1. Open a scene...
+        2. Middle-click / drag a box / change a cursor setting...
+        3. Observe...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console errors
+      description: Paste any errors from the browser console (press F12).
+      render: text
+
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots or clips
+      description: Add screenshots or short clips if they help show the problem.
+
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Anything else you want to add?
+      description: Use this space if the form did not quite fit your situation.

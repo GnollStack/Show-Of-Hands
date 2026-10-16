@@ -1,0 +1,52 @@
+name: Feature idea
+description: Suggest something Show of Hands should help you do at the table.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feature ideas are welcome. Tell me what happened at your table; I may adapt, decline, or implement the idea myself.
+
+  - type: textarea
+    id: table-situation
+    attributes:
+      label: What happened at your table?
+      description: Describe the real game situation or rough spot behind the idea.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area of the module
+      options:
+        - Targeting
+        - Box selection
+        - Custom cursors
+        - Cursor sharing and labels
+        - Compatibility with another module
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: feature-idea
+    attributes:
+      label: Feature idea
+      description: Describe the feature or behavior you have in mind, and what it would make easier.
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Current workaround
+      description: How are you handling this today, if at all?
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples or references
+      description: Add screenshots, mockups, or examples from other modules if useful.
