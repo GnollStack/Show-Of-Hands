@@ -10,11 +10,11 @@
 [![Foundry VTT v14](https://img.shields.io/badge/Foundry-v14-orange?style=flat-square)](https://foundryvtt.com)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Buy%20a%20Steak-FF5E5B?style=flat-square&logo=ko-fi&logoColor=white)](https://ko-fi.com/gnollstack)
 [![Patreon: Bazaar Patron](https://img.shields.io/badge/Patreon-Bazaar%20Patron-F96854?style=flat-square&logo=patreon&logoColor=white)](https://www.patreon.com/cw/GnollStack)
-[![Discord: Bakshi's Bazaar](https://img.shields.io/badge/Discord-Bakshi%27s%20Bazaar-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/bGQDnyqYJ)
+[![Discord: Bakshi's Bazaar](https://img.shields.io/badge/Discord-Bakshi%27s%20Bazaar-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/tcdYk54fxC)
 
 *Who doesn't like customized cursors!?*
 
-[Preview](#preview) · [Quick Start](#quick-start) · [Features](#features) · [Use It For](#use-it-for) · [Installation](#installation) · [Changelog](https://github.com/GnollStack/Bakshi-s-Bazaar-Media/blob/main/show-of-hands/CHANGELOG.md) · [Compatibility](#compatibility) · [API](#developer-api) · [Bakshi's Bazaar](#bakshis-bazaar) · [Community](#community) · [Contributing](#contributing) · [AI Use](#ai-assisted-development) · [Support](#support-development) · [License](#license-permissions)
+[Preview](#preview) · [Quick Start](#quick-start) · [Features](#features) · [Use It For](#use-it-for) · [Installation](#installation) · [Changelog](https://github.com/GnollStack/bakshis-bazaar-archives/blob/main/show-of-hands/CHANGELOG.md) · [Compatibility](#compatibility) · [API](#developer-api) · [Bakshi's Bazaar](#bakshis-bazaar) · [Community](#community) · [Contributing](#contributing) · [AI Use](#ai-assisted-development) · [Support](#support-development) · [License](#license-permissions)
 
 </div>
 
@@ -48,7 +48,7 @@
 
 <div align="center">
 
-<img width="1608" height="660" alt="Show of Hands targeting and shared cursors" src="https://raw.githubusercontent.com/GnollStack/Bakshi-s-Bazaar-Media/main/show-of-hands/gifs/show-of-hands-preview.gif" />
+<img width="1608" height="660" alt="Show of Hands targeting and shared cursors" src="https://raw.githubusercontent.com/GnollStack/bakshis-bazaar-archives/main/show-of-hands/gifs/show-of-hands-preview.gif" />
 
 </div>
 
@@ -108,7 +108,7 @@ Hold the middle mouse button and drag to target several tokens at once.
 
 <div align="center">
 
-<img width="1027" height="863" alt="Marquee box selection targeting several tokens" src="https://raw.githubusercontent.com/GnollStack/Bakshi-s-Bazaar-Media/main/show-of-hands/images/show-of-hands-marquee-select.png" />
+<img width="1027" height="863" alt="Marquee box selection targeting several tokens" src="https://raw.githubusercontent.com/GnollStack/bakshis-bazaar-archives/main/show-of-hands/images/show-of-hands-marquee-select.png" />
 
 </div>
 
@@ -146,7 +146,7 @@ Per-state customization includes FilePicker-backed image paths, click hotspot po
 
 <div align="center">
 
-<img width="947" height="896" alt="Cursor Settings window with per-state images and live preview" src="https://raw.githubusercontent.com/GnollStack/Bakshi-s-Bazaar-Media/main/show-of-hands/images/show-of-hands-cursor-settings.png" />
+<img width="947" height="896" alt="Cursor Settings window with per-state images and live preview" src="https://raw.githubusercontent.com/GnollStack/bakshis-bazaar-archives/main/show-of-hands/images/show-of-hands-cursor-settings.png" />
 
 </div>
 
@@ -423,7 +423,7 @@ https://github.com/GnollStack/Show-Of-Hands/releases/latest/download/module.json
 
 </div>
 
-**Module version:** `14.2.2`
+**Module version:** `14.2.3`
 
 **Foundry VTT:** v14 only; verified on **14.367**.
 
@@ -556,11 +556,11 @@ game.modules.get("show-of-hands").api.diagnostics.actions.openWindow({ window: "
 A Bazaar Patron membership includes:
 
 - Every Bakshi's Bazaar premium module while your membership is active, including ongoing updates and new modules as they're added.
-- Patron-only channels in the [Bakshi's Bazaar Discord](https://discord.gg/bGQDnyqYJ).
+- Patron-only channels in the [Bakshi's Bazaar Discord](https://discord.gg/tcdYk54fxC).
 - Priority module support.
 - A direct place to share feedback and feature suggestions. Suggestions are welcome and taken seriously, but development priorities remain at my discretion.
 
-Everyone is welcome in the [Bakshi's Bazaar Discord](https://discord.gg/bGQDnyqYJ): the public channels cover release announcements, questions, and feature ideas, and patrons also get the patron-only channels and priority support. Bug reports for Show of Hands still go to [GitHub issues](https://github.com/GnollStack/Show-Of-Hands/issues), as described under Community.
+Everyone is welcome in the [Bakshi's Bazaar Discord](https://discord.gg/tcdYk54fxC): the public channels cover release announcements, questions, and feature ideas, and patrons also get the patron-only channels and priority support. Bug reports for Show of Hands still go to [GitHub issues](https://github.com/GnollStack/Show-Of-Hands/issues), as described under Community.
 
 ---
 
@@ -573,7 +573,7 @@ Everyone is welcome in the [Bakshi's Bazaar Discord](https://discord.gg/bGQDnyqY
 </div>
 
 - **Report bugs** - [open an issue](https://github.com/GnollStack/Show-Of-Hands/issues) with your Foundry version, module version, steps to reproduce, console logs, and screenshots or short clips when useful.
-- **Ask on Discord** - anyone can ask questions in the public channels of the [Bakshi's Bazaar Discord](https://discord.gg/bGQDnyqYJ). Bazaar Patrons get priority support in the patron-only channels.
+- **Ask on Discord** - anyone can ask questions in the public channels of the [Bakshi's Bazaar Discord](https://discord.gg/tcdYk54fxC). Bazaar Patrons get priority support in the patron-only channels.
 - **Request features** - tell me what happened at your table and what you wish the module could do.
 - **Star the repo** - if the module is useful at your table, a star helps other GMs find it.
 - **Watch releases** - follow the repo for updates, compatibility notes, and new feature releases.
@@ -674,7 +674,7 @@ For licensing inquiries or permission slips:
 
 <div align="center">
 
-**Author:** [GnollStack](https://github.com/GnollStack) - **Compatibility:** Foundry VTT v14 - **Version:** 14.2.2
+**Author:** [GnollStack](https://github.com/GnollStack) - **Compatibility:** Foundry VTT v14 - **Version:** 14.2.3
 
 [Back to Top](#show-of-hands)
 

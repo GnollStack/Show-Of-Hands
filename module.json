@@ -29,21 +29,21 @@
   "url": "https://github.com/GnollStack/Show-Of-Hands",
   "readme": "https://github.com/GnollStack/Show-Of-Hands/blob/main/README.md",
   "bugs": "https://github.com/GnollStack/Show-Of-Hands/issues",
-  "changelog": "https://github.com/GnollStack/Bakshi-s-Bazaar-Media/blob/main/show-of-hands/CHANGELOG.md",
+  "changelog": "https://github.com/GnollStack/bakshis-bazaar-archives/blob/main/show-of-hands/CHANGELOG.md",
   "media": [
     {
       "type": "cover",
-      "url": "https://raw.githubusercontent.com/GnollStack/Bakshi-s-Bazaar-Media/main/show-of-hands/gifs/show-of-hands-preview.gif",
+      "url": "https://raw.githubusercontent.com/GnollStack/bakshis-bazaar-archives/main/show-of-hands/gifs/show-of-hands-preview.gif",
       "caption": "Show of Hands targeting and shared cursors"
     },
     {
       "type": "screenshot",
-      "url": "https://raw.githubusercontent.com/GnollStack/Bakshi-s-Bazaar-Media/main/show-of-hands/images/show-of-hands-marquee-select.png",
+      "url": "https://raw.githubusercontent.com/GnollStack/bakshis-bazaar-archives/main/show-of-hands/images/show-of-hands-marquee-select.png",
       "caption": "Marquee box selection targeting several tokens"
     },
     {
       "type": "screenshot",
-      "url": "https://raw.githubusercontent.com/GnollStack/Bakshi-s-Bazaar-Media/main/show-of-hands/images/show-of-hands-cursor-settings.png",
+      "url": "https://raw.githubusercontent.com/GnollStack/bakshis-bazaar-archives/main/show-of-hands/images/show-of-hands-cursor-settings.png",
       "caption": "Cursor Settings window with per-state images and live preview"
     }
   ],
