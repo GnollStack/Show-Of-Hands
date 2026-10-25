@@ -15,8 +15,10 @@ test('libWrapper keeps privacy filtering installed across repeated dropped and m
     let privateMode = true;
     let registrations = 0;
     let removals = 0;
+    let pullHandoff = false;
     class User {
         isSelf = true;
+        isGM = true;
         broadcastActivity(activity, options) {
             sent.push({ user: this, activity, options });
             return 'native-result';
@@ -47,7 +49,14 @@ test('libWrapper keeps privacy filtering installed across repeated dropped and m
         }
     };
     const privacy = await import('../scripts/privacy-broadcast.js?test=libwrapper');
-    const callbacks = { isPrivateMode: () => privateMode, emitHiddenPing: (...args) => hiddenPings.push(args) };
+    const callbacks = {
+        isPrivateMode: () => privateMode,
+        emitHiddenPing: (...args) => hiddenPings.push(args),
+        emitGmPullView: () => {
+            if (pullHandoff instanceof Error) throw pullHandoff;
+            return pullHandoff;
+        }
+    };
     privacy.installCursorPrivacyBroadcastWrapper(callbacks);
     privacy.installCursorPrivacyBroadcastWrapper(callbacks);
     assert.equal(registrations, 1);
@@ -71,6 +80,25 @@ test('libWrapper keeps privacy filtering installed across repeated dropped and m
     privateMode = true;
     game.user.broadcastActivity({ cursor });
     assert.equal(sent.length, 3);
+
+    const pull = Object.freeze({ style: 'pulse', pull: true, zoom: 4 });
+    const activity = Object.freeze({ cursor, ping: pull, targets: ['token'], active: true });
+    for (const privacyEnabled of [false, true]) {
+        privateMode = privacyEnabled;
+        for (const handoff of [true, false, new Error('capture failed')]) {
+            pullHandoff = handoff;
+            sent.length = 0;
+            hiddenPings.length = 0;
+            assert.equal(game.user.broadcastActivity(activity, { volatile: false }), 'native-result');
+            const expected = privacyEnabled ? { targets: ['token'], active: true }
+                : handoff === true ? { cursor, targets: ['token'], active: true } : activity;
+            assert.deepEqual(sent, [{ user: game.user, activity: expected, options: { volatile: false } }]);
+            assert.equal(hiddenPings.length, privacyEnabled && handoff !== true ? 1 : 0);
+            assert.equal(activity.ping, pull, 'local GM ping metadata remains intact');
+        }
+    }
+    assert.equal(removals, 0);
+    assert.equal(registrations, 1);
 });
 
 test('privacy direct fallback preserves repeated suppression when libWrapper rejects registration', async () => {

@@ -73,6 +73,7 @@ export const SOCKET_MESSAGE_TYPES = Object.freeze({
     CURSOR_IMAGE: "cursorImage",
     CURSOR_HIDDEN: "cursorHidden",
     HIDDEN_PING: "hiddenPing",
+    GM_PULL_VIEW: "gmPullView",
     REQUEST_CURSOR_IMAGE: "requestCursorImage"
 });
 

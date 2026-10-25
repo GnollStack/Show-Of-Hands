@@ -16,7 +16,8 @@ import { loadImage, getRotatedCursor } from './cursor-styles.js';
 import { computeResizeOutput } from './cursor-geometry-core.js';
 import { LatestValueRateLimiter } from './latest-value-rate-limiter.js';
 import { canBroadcastVisibleCursor, getShowCursorPermissionState } from './foundry-permissions.js';
-import { getHiddenSharedCursorUserIds, getUserCursorConfig, isSharedCursorUserVisible } from './settings.js';
+import { getGmPullViewMode, getHiddenSharedCursorUserIds, getUserCursorConfig, isSharedCursorUserVisible } from './settings.js';
+import { captureGmView, resolveGmPullZoom } from './gm-pull-view.js';
 import {
     MAX_CURSOR_IMAGE_DATA_URL_LENGTH,
     authenticateSocketSender,
@@ -218,6 +219,28 @@ export function broadcastHiddenPing(position, pingData) {
         ping: pingData
     });
     debugLog("sharing", `Broadcast hidden ping at (${position?.x?.toFixed?.(1) ?? "?"}, ${position?.y?.toFixed?.(1) ?? "?"})`);
+}
+
+export function broadcastGmPullView(position, pingData) {
+    const mode = getGmPullViewMode();
+    const user = game.user;
+    if (mode === 'native' || !_active || !canvas?.ready || game.socket?.connected === false) return false;
+    if (!user?.isGM || user.hasPermission?.('PING_CANVAS') !== true || pingData?.pull !== true) return false;
+    if (!canvas.scene?.id || pingData.scene !== canvas.scene.id) return false;
+    const view = mode === 'fit' ? captureGmView(canvas) : null;
+    if (mode === 'fit' && !view) return false;
+    const message = {
+        type: SOCKET_MESSAGE_TYPES.GM_PULL_VIEW,
+        userId: user.id, sceneId: canvas.scene.id, levelId: _getCurrentLevelId(),
+        mode, position, ping: pingData,
+        ...(view ? { view } : {})
+    };
+    const validation = validateSocketMessage(message);
+    if (!validation.valid) return false;
+    const data = validation.data;
+    data.ping = sanitizeHiddenPing(data, user);
+    _emitModuleSocket(data);
+    return true;
 }
 
 export function stopCursorSharing() {
@@ -480,6 +503,7 @@ function _requestCursorImages(targetUserId = null) {
 }
 
 function _onSocketMessage(data, senderId) {
+    if (!_active) return;
     const sender = _getAuthenticatedSender(data, senderId);
     if (!sender) return;
 
@@ -525,15 +549,22 @@ function _onSocketMessage(data, senderId) {
         if (sender.id === game.user.id) return;
         _inboundCursorImageLimiter.cancel(sender.id);
         removeRemoteCursor(sender.id);
-    } else if (data.type === SOCKET_MESSAGE_TYPES.HIDDEN_PING) {
+    } else if (data.type === SOCKET_MESSAGE_TYPES.HIDDEN_PING || data.type === SOCKET_MESSAGE_TYPES.GM_PULL_VIEW) {
         if (sender.id === game.user.id) return;
         if (!isSocketMessageForCurrentView(data, sender, canvas)) return;
         const user = sender;
         if (!user || !canvas.ready || !data.position) return;
         if (user.hasPermission?.('PING_CANVAS') !== true) return;
+        const isGmPull = data.type === SOCKET_MESSAGE_TYPES.GM_PULL_VIEW;
+        if (isGmPull && user.isGM !== true) return;
+        const zoom = isGmPull ? resolveGmPullZoom(data.mode, data.view, canvas) : null;
+        if (isGmPull && zoom === null) return;
+        // Share the ping bucket so alternating ping types cannot bypass it.
         if (_isInboundRateLimited(sender.id, 'hiddenPing', INBOUND_HIDDEN_PING_MIN_INTERVAL_MS)) return;
         const ping = sanitizeHiddenPing(data, user, globalThis.CONFIG?.Canvas);
-        canvas.controls.handlePing(user, data.position, ping);
+        if (isGmPull) ping.zoom = zoom;
+        Promise.resolve(canvas.controls.handlePing(user, data.position, ping))
+            .catch(error => console.warn(`${MODULE_ID} | Remote ping failed:`, error));
     } else if (data.type === SOCKET_MESSAGE_TYPES.REQUEST_CURSOR_IMAGE) {
         if (sender.id === game.user.id) return;
         if (data.targetUserId && data.targetUserId !== game.user.id) return;

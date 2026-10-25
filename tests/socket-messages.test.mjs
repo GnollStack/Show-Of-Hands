@@ -389,8 +389,39 @@ test('hidden ping sanitizer allowlists fields, clamps zoom, and reserves pull fo
         scene: 'scene-1', style: 'alert', pull: true, zoom: 4
     });
     assert.deepEqual(sanitizeHiddenPing({ sceneId: 'scene-1', ping: { style: 'injected', zoom: -5 } }, {}, config), {
-        scene: 'scene-1', style: 'pulse', pull: false, zoom: 0.1
+        scene: 'scene-1', style: 'pulse', pull: false, zoom: 1
     });
+});
+
+test('private ping zoom follows ready-canvas bounds instead of historical fixed limits', () => {
+    const canvas = { ready: true, stage: { scale: { x: 0.75 } }, dimensions: { scale: { min: 0.01, max: 10 } } };
+    for (const zoom of [0.05, 4, 6]) {
+        assert.equal(sanitizeHiddenPing({ ping: { zoom } }, {}, { maxZoom: 3 }, canvas).zoom, zoom);
+    }
+    assert.equal(sanitizeHiddenPing({ ping: { zoom: Infinity } }, {}, {}, canvas).zoom, 0.75);
+    assert.equal(sanitizeHiddenPing({ ping: { zoom: 100 } }, {}, {}, canvas).zoom, 10);
+});
+
+test('GM pull view messages require a supported mode, finite position, and valid fit area', () => {
+    const message = {
+        type: SOCKET_MESSAGE_TYPES.GM_PULL_VIEW, userId: USER_ID, sceneId: 'scene-1', levelId: 'ground',
+        mode: 'fit', position: { x: 20, y: 30 }, ping: { pull: true, zoom: 1, style: 'pulse', duration: 999999 },
+        view: { width: 1920, height: 1080, extra: true }, extra: true
+    };
+    const result = validateSocketMessage(message);
+    assert.equal(result.valid, true);
+    assert.equal(result.data.extra, undefined);
+    assert.equal(result.data.ping.duration, undefined);
+    assert.deepEqual(result.data.view, { width: 1920, height: 1080 });
+    for (const patch of [
+        { mode: 'native' }, { mode: 'unknown' }, { sceneId: null }, { levelId: 1 },
+        { position: { x: Infinity, y: 1 } }, { ping: { pull: false } },
+        { view: null }, { view: { width: 0, height: 1 } }, { view: { width: '1920', height: 1080 } },
+        { view: { width: 1, height: NaN } }
+    ]) assert.equal(validateSocketMessage({ ...message, ...patch }).valid, false, JSON.stringify(patch));
+    const keep = validateSocketMessage({ ...message, mode: 'keep', view: undefined });
+    assert.equal(keep.valid, true);
+    assert.equal('view' in keep.data, false);
 });
 
 test('decoded cursor image dimensions stay inside the transport raster bound', () => {

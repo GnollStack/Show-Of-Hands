@@ -29,6 +29,7 @@
 | **[Marquee Box Select](#marquee-box-select)** | Drag a rectangle to target groups quickly, with optional filters. |
 | **[Custom Cursors](#custom-cursors)** | Give Foundry per-state cursor art, hotspot control, and live previews. |
 | **[Multiplayer Cursor Sharing](#multiplayer-cursor-sharing)** | See where other players are pointing without relying on the default cursor dot alone. |
+| **[GM Pull Ping View](#gm-pull-ping-view)** | Bring viewers to a point while keeping their zoom, matching GM zoom, or fitting the GM's view to each screen. |
 | **[Cursor Name Labels](#shared-cursor-name-labels)** | Place movable player labels next to shared cursors. |
 
 *Foundry already has targeting and cursor presence. Show of Hands makes them faster, more visible, and easier to customize.*
@@ -203,6 +204,24 @@ See other players' cursors on the canvas in real time. Each shared cursor appear
 Private mode also wraps native cursor activity so canvas pings do not reveal your cursor through Foundry's built-in cursor display.
 
 </details>
+
+---
+
+<a id="gm-pull-ping-view"></a>
+
+### GM Pull Ping View
+
+As GM, use **Shift + hold left-click** on the canvas to send a pull ping using [Foundry's normal ping gesture](https://foundryvtt.com/article/pings/). Choose **Configure Settings > Module Settings > Show of Hands > GM Pull Ping View** to control the camera behavior for the world:
+
+| Mode | What viewers see |
+| --- | --- |
+| Keep Player Zoom | Center on the selected point while keeping each viewer's current zoom. |
+| Match GM Zoom (Foundry VTT default) | Center on the selected point and use the GM's numeric zoom, preserving Foundry's usual behavior. |
+| Fit GM View (default) | Fit the GM's full canvas map area around the selected point, adjusting zoom for each viewer's screen size. |
+
+Fit GM View uses the GM's canvas viewport and zoom at the moment of the ping. Smaller or differently shaped screens zoom to include that entire map area. Different aspect ratios can show extra map at the edges; there are no added borders or cropping. Foundry's camera limits still apply and can prevent a complete fit at extreme zoom levels.
+
+Pulls work in Share My Cursor, Receive Only, and Private cursor modes. Viewers must already be on the same scene and level. The camera moves once, and everyone remains free to pan or zoom afterward. Reload all connected clients after updating before testing these modes.
 
 ---
 

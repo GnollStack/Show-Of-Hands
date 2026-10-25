@@ -1,6 +1,7 @@
 import { CURSOR_SIZE_MAX, CURSOR_SOURCE_HOTSPOT_MAX, CURSOR_STATE_KEYS } from './constants.js';
 import { SETTING_CHOICES, SETTING_DEFINITIONS, SETTING_KEYS, SETTING_RANGES } from './settings.js';
 import { normalizeRect, rectIntersectsBounds, computeMarqueeTargetUpdate } from './marquee-core.js';
+import { computeFitZoom, clampCanvasZoom } from './gm-pull-view.js';
 import { computeCursorDisplaySize, computeCursorPreviewGeometry, computeResizeOutput, computeRotationOutput, computeOverlayNamePlacement, stepCursorLerp } from './cursor-geometry-core.js';
 
 export const DIAGNOSTICS_API_VERSION = 1;
@@ -633,6 +634,12 @@ export function runCoreSelfChecks() {
     const lerpOk = approx(lerpSnap.x, 0.1) && approx(lerpSnap.y, 0.1) && approx(lerpStep.x, 1) && approx(lerpStep.y, 0);
 
     return [
+        makeSmokeCheck("GM view fits different screen shapes", approx(computeFitZoom(
+            { width: 1920, height: 1080 }, { width: 1280, height: 1024 }
+        ), 2 / 3)),
+        makeSmokeCheck("GM pull zoom uses canvas limits", clampCanvasZoom(6, {
+            ready: true, dimensions: { scale: { min: 0.02, max: 8 } }
+        }, {}) === 6),
         makeSmokeCheck("marquee rectangle intersection (strict edges)", intersectionOk),
         makeSmokeCheck("marquee target diff (replace/additive/unchanged)", targetDiffOk),
         makeSmokeCheck("cursor resize scales to the size cap", resizeOk, { resize }),

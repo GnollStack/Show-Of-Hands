@@ -800,6 +800,11 @@ function _tick() {
                 entry.container.visible = true;
             } else {
                 // Plain cursor fade when no idle identity elements are needed.
+                // A setting can switch branches halfway through the fade.
+                // Only the parent owns opacity in this branch.
+                if (entry.sprite) entry.sprite.alpha = 1;
+                entry.arrow.alpha = 1;
+                entry.text.alpha = 1;
                 entry.container.alpha = fadeOutAlpha;
                 entry.idleDot.visible = false;
                 entry.idleText.visible = false;

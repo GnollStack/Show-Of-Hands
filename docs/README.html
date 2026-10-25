@@ -38,6 +38,10 @@
 <td style="text-align:left">See where other players are pointing without relying on the default cursor dot alone.</td>
 </tr>
 <tr>
+<td style="text-align:left"><strong><a href="#gm-pull-ping-view">GM Pull Ping View</a></strong></td>
+<td style="text-align:left">Bring viewers to a point while keeping their zoom, matching GM zoom, or fitting the GM's view to each screen.</td>
+</tr>
+<tr>
 <td style="text-align:left"><strong><a href="#shared-cursor-name-labels">Cursor Name Labels</a></strong></td>
 <td style="text-align:left">Place movable player labels next to shared cursors.</td>
 </tr>
@@ -215,6 +219,34 @@
 </table>
 <p>Private mode also wraps native cursor activity so canvas pings do not reveal your cursor through Foundry's built-in cursor display.</p>
 </details>
+<hr />
+
+<h3 id="gm-pull-ping-view">GM Pull Ping View</h3>
+<p>As GM, use <strong>Shift + hold left-click</strong> on the canvas to send a pull ping using <a href="https://foundryvtt.com/article/pings/">Foundry's normal ping gesture</a>. Choose <strong>Configure Settings &gt; Module Settings &gt; Show of Hands &gt; GM Pull Ping View</strong> to control the camera behavior for the world:</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>What viewers see</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Keep Player Zoom</td>
+<td>Center on the selected point while keeping each viewer's current zoom.</td>
+</tr>
+<tr>
+<td>Match GM Zoom (Foundry VTT default)</td>
+<td>Center on the selected point and use the GM's numeric zoom, preserving Foundry's usual behavior.</td>
+</tr>
+<tr>
+<td>Fit GM View (default)</td>
+<td>Fit the GM's full canvas map area around the selected point, adjusting zoom for each viewer's screen size.</td>
+</tr>
+</tbody>
+</table>
+<p>Fit GM View uses the GM's canvas viewport and zoom at the moment of the ping. Smaller or differently shaped screens zoom to include that entire map area. Different aspect ratios can show extra map at the edges; there are no added borders or cropping. Foundry's camera limits still apply and can prevent a complete fit at extreme zoom levels.</p>
+<p>Pulls work in Share My Cursor, Receive Only, and Private cursor modes. Viewers must already be on the same scene and level. The camera moves once, and everyone remains free to pan or zoom afterward. Reload all connected clients after updating before testing these modes.</p>
 <hr />
 
 <h3 id="shared-cursor-name-labels">Shared Cursor Name Labels</h3>

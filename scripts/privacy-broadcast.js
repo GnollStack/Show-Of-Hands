@@ -22,6 +22,7 @@ let _state = {
 
 let _isPrivateMode = () => false;
 let _emitHiddenPing = () => {};
+let _emitGmPullView = () => false;
 let _originalBroadcastActivity = null;
 
 function hasOwn(value, key) {
@@ -98,6 +99,20 @@ function handleBroadcastActivity(user, original, activityData = {}, options = {}
     const privateMode = !!(user?.isSelf && _isPrivateMode());
     _state.privateModeActive = privateMode;
 
+    if (user?.isSelf && user.isGM && activityData?.ping?.pull === true) {
+        try {
+            // Only consume the native remote ping after a successful handoff.
+            // Do not mutate the original ping: Canvas.ping still handles it
+            // locally once, keeping the GM at the chosen point and own zoom.
+            if (_emitGmPullView(activityData.cursor, activityData.ping) === true) {
+                activityData = { ...activityData };
+                delete activityData.ping;
+            }
+        } catch (error) {
+            console.warn(`${MODULE_ID} | GM pull view fell back to normal ping handling:`, error);
+        }
+    }
+
     const result = filterPrivateBroadcastActivity(activityData, { privateMode });
     if (result.hiddenPing) _emitHiddenPing(result.hiddenPing.position, result.hiddenPing.ping);
     if (result.action === "drop") return undefined;
@@ -121,7 +136,8 @@ function installDirectPatch(proto, fallbackReason) {
 
 export function installCursorPrivacyBroadcastWrapper({
     isPrivateMode,
-    emitHiddenPing
+    emitHiddenPing,
+    emitGmPullView
 } = {}) {
     const proto = globalThis.foundry?.documents?.User?.prototype
         ?? globalThis.game?.user?.constructor?.prototype;
@@ -129,6 +145,7 @@ export function installCursorPrivacyBroadcastWrapper({
 
     _isPrivateMode = typeof isPrivateMode === "function" ? isPrivateMode : _isPrivateMode;
     _emitHiddenPing = typeof emitHiddenPing === "function" ? emitHiddenPing : _emitHiddenPing;
+    _emitGmPullView = typeof emitGmPullView === "function" ? emitGmPullView : _emitGmPullView;
 
     _state = {
         ..._state,

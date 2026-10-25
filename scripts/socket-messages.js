@@ -1,4 +1,5 @@
 import { CURSOR_SIZE_MAX, NAME_POSITION_PRESETS, SOCKET_MESSAGE_TYPES } from './constants.js';
+import { clampCanvasZoom, isValidViewSize } from './gm-pull-view.js';
 
 export const SOCKET_MESSAGE_TYPE_VALUES = Object.freeze(Object.values(SOCKET_MESSAGE_TYPES));
 export const MAX_CURSOR_IMAGE_DATA_URL_LENGTH = 256_000;
@@ -171,18 +172,13 @@ export function isSocketMessageForCurrentView(data, user, canvasRef = globalThis
 }
 
 /** Reduce a private-mode ping to Foundry's documented broadcast fields. */
-export function sanitizeHiddenPing(data, user, canvasConfig = globalThis.CONFIG?.Canvas) {
+export function sanitizeHiddenPing(data, user, canvasConfig = globalThis.CONFIG?.Canvas, canvasRef = globalThis.canvas) {
     const source = isPlainObject(data?.ping) ? data.ping : {};
     const styles = canvasConfig?.pings?.styles ?? {};
     const style = typeof source.style === 'string' && Object.prototype.hasOwnProperty.call(styles, source.style)
         ? source.style
         : 'pulse';
-    const configuredMaxZoom = Number(canvasConfig?.maxZoom);
-    const maxZoom = Number.isFinite(configuredMaxZoom) && configuredMaxZoom > 0 ? configuredMaxZoom : 3;
-    const requestedZoom = Number(source.zoom);
-    const zoom = Number.isFinite(requestedZoom)
-        ? Math.min(maxZoom, Math.max(0.1, requestedZoom))
-        : 1;
+    const zoom = clampCanvasZoom(source.zoom, canvasRef, canvasConfig);
 
     return {
         scene: normalizeId(data?.sceneId),
@@ -285,6 +281,34 @@ export function validateSocketMessage(data) {
                         y: clampNumber(data.nameOffset.y, -MAX_CURSOR_NAME_OFFSET, MAX_CURSOR_NAME_OFFSET)
                     }
                 } : {})
+            }
+        };
+    }
+
+    if (type === SOCKET_MESSAGE_TYPES.GM_PULL_VIEW) {
+        if (typeof data.sceneId !== 'string' || !data.sceneId.length || !isOptionalString(data.levelId)) {
+            return { valid: false, error: 'gmPullView requires a scene and optional level.', type };
+        }
+        if (!isPlainObject(data.position) || !isFiniteNumber(data.position.x) || !isFiniteNumber(data.position.y)) {
+            return { valid: false, error: 'gmPullView requires finite position coordinates.', type };
+        }
+        if (!['keep', 'fit'].includes(data.mode) || !isPlainObject(data.ping) || data.ping.pull !== true) {
+            return { valid: false, error: 'gmPullView requires a keep/fit mode and pull ping.', type };
+        }
+        if (data.mode === 'fit' && (!isPlainObject(data.view) || !isValidViewSize(data.view))) {
+            return { valid: false, error: 'gmPullView fit requires finite positive world-space dimensions.', type };
+        }
+        return {
+            valid: true, error: null, type,
+            data: {
+                type, userId: data.userId, sceneId: data.sceneId, levelId: data.levelId ?? null,
+                mode: data.mode,
+                position: {
+                    x: clampNumber(data.position.x, -MAX_SOCKET_WORLD_COORDINATE, MAX_SOCKET_WORLD_COORDINATE),
+                    y: clampNumber(data.position.y, -MAX_SOCKET_WORLD_COORDINATE, MAX_SOCKET_WORLD_COORDINATE)
+                },
+                ping: { style: data.ping.style, pull: true, zoom: data.ping.zoom },
+                ...(data.mode === 'fit' ? { view: { width: data.view.width, height: data.view.height } } : {})
             }
         };
     }

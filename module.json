@@ -3,7 +3,7 @@
   "title": "Show of Hands: Targeting & Cursors",
   "type": "module",
   "description": "Target tokens with middle-click, select groups with a drag, and share custom per-player cursors with your table.",
-  "version": "14.2.3",
+  "version": "14.2.4",
   "authors": [
     {
       "name": "GnollStack",

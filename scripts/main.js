@@ -14,6 +14,7 @@ import {
     USER_CURSOR_CONFIG_FLAG,
     buildSettingRegistrationOptions,
     getCursorSharingMode,
+    getGmPullViewMode,
     getMarqueeLevelFilter,
     getMiddleMouseActionMode,
     getUserCursorConfig,
@@ -30,7 +31,7 @@ import { setupCursorStateListeners, cleanupCursorStateListeners } from './state-
 import { CursorConfigApp } from './cursor-config-app.js';
 import { AdvancedSettingsApp } from './advanced-settings-app.js';
 import { initCursorOverlay, destroyCursorOverlay, getCursorOverlayDebugState, updateOverlaySetting } from './cursor-overlay.js';
-import { startCursorSharing, stopCursorSharing, refreshSharedCursorImage, setCursorBroadcastEnabled, broadcastHiddenPing, syncHiddenRemoteCursors, getCursorSharingDebugState } from './cursor-sharing.js';
+import { startCursorSharing, stopCursorSharing, refreshSharedCursorImage, setCursorBroadcastEnabled, broadcastHiddenPing, broadcastGmPullView, syncHiddenRemoteCursors, getCursorSharingDebugState } from './cursor-sharing.js';
 import { createDiagnostics } from './diagnostics.js';
 import { getShowCursorPermissionState } from './foundry-permissions.js';
 import { getMarqueeLevelFilterStatus } from './scene-levels.js';
@@ -71,7 +72,8 @@ function installPrivacyWrapper() {
     try {
         installCursorPrivacyBroadcastWrapper({
             isPrivateMode: isCursorPrivateMode,
-            emitHiddenPing: broadcastHiddenPing
+            emitHiddenPing: broadcastHiddenPing,
+            emitGmPullView: broadcastGmPullView
         });
     } catch (error) {
         console.error(`${MODULE_ID} | Cursor privacy broadcast wrapper install failed:`, error);
@@ -140,6 +142,7 @@ function getDebugState() {
         middleMouseMode: getMiddleMouseActionMode(),
         clearTargetsOnEmptyClick: game.settings.get(MODULE_ID, "clear-targets-on-empty-click"),
         cursorSharingMode: game.settings.get(MODULE_ID, "cursor-sharing-mode"),
+        gmPullViewMode: getGmPullViewMode(),
         cursorBroadcastEnabled: isCursorBroadcastEnabled(),
         cursorPrivateMode: isCursorPrivateMode(),
         marqueeTokenFilter: game.settings.get(MODULE_ID, "marquee-token-filter"),

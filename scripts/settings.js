@@ -33,6 +33,12 @@ export const CURSOR_SHARING_MODES = Object.freeze({
     private: "Private"
 });
 
+export const GM_PULL_VIEW_MODES = Object.freeze({
+    keep: "Keep Player Zoom",
+    native: "Match GM Zoom (Foundry VTT default)",
+    fit: "Fit GM View (default)"
+});
+
 export const MARQUEE_TOKEN_FILTERS = Object.freeze({
     all: "All Visible Tokens",
     hostile: "Hostile Tokens",
@@ -225,6 +231,17 @@ export function getDefaultUserCursorConfig() {
 }
 
 export const SETTING_DEFINITIONS = Object.freeze([
+    {
+        key: "gm-pull-view-mode",
+        name: "GM Pull Ping View",
+        hint: "Shift + hold left-click to pull viewers on the same scene and level. Keep their zoom, match your zoom, or fit your full canvas area to their screens. Fit may show extra map at the edges and respects Foundry's zoom limits.",
+        scope: "world",
+        config: true,
+        restricted: true,
+        type: String,
+        defaultValue: "fit",
+        choices: GM_PULL_VIEW_MODES
+    },
     // Hidden legacy settings stay registered so migration/fallback reads remain
     // possible without exposing outdated controls in Foundry's settings UI.
     { key: "use-aom-cursor", scope: "client", config: false, type: Boolean, defaultValue: true },
@@ -627,6 +644,10 @@ function getChoiceSetting(key, choices, fallback) {
 
 export function getMiddleMouseActionMode() {
     return getChoiceSetting("middle-mouse-actions", MIDDLE_MOUSE_ACTION_MODES, "both");
+}
+
+export function getGmPullViewMode() {
+    return getChoiceSetting("gm-pull-view-mode", GM_PULL_VIEW_MODES, "fit");
 }
 
 export function isMiddleMouseTargetingEnabled() {

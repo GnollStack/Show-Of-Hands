@@ -102,7 +102,7 @@ function makeValidPngDataUrl(width = 1, height = 1) {
 }
 
 async function withSharingEnvironment(name, run) {
-    const keys = ['canvas', 'game', 'foundry', 'Hooks', 'PIXI', 'CONFIG', 'Image', 'setTimeout', 'clearTimeout'];
+    const keys = ['canvas', 'game', 'foundry', 'Hooks', 'PIXI', 'CONFIG', 'Image', 'setTimeout', 'clearTimeout', 'libWrapper'];
     const previous = Object.fromEntries(keys.map(key => [key, globalThis[key]]));
     const priorNow = Date.now;
     const socketListeners = new Map();
@@ -206,6 +206,162 @@ async function withSharingEnvironment(name, run) {
         }
     }
 }
+
+for (const mode of ['native', 'keep', 'fit']) {
+    for (const privacyMode of ['share', 'receive', 'private']) {
+        test(`GM pull ${mode} routes once with ${privacyMode} cursor mode`, async () => {
+            await withSharingEnvironment(`pull-${mode}-${privacyMode}`, async env => {
+                const { sharing, local, remote, emissions, receive, advance } = env;
+                local.isGM = true;
+                local.isSelf = true;
+                game.settings.get = (_scope, key) => key === 'gm-pull-view-mode' ? mode
+                    : (key === 'hidden-shared-cursor-users' ? {} : 'off');
+                canvas.stage = { scale: { x: 1.25 } };
+                canvas.app.renderer = { screen: { width: 1920, height: 1080 } };
+                canvas.dimensions = { scale: { min: 0.01, max: 12 } };
+                const native = [];
+                const received = [];
+                canvas.controls.handlePing = (...args) => { received.push(args); return Promise.resolve(true); };
+                class User {
+                    broadcastActivity(activity, options) { native.push({ activity, options }); return 'forwarded'; }
+                }
+                foundry.documents = { User };
+                globalThis.libWrapper = undefined;
+                const privacy = await import(`../scripts/privacy-broadcast.js?matrix=${mode}-${privacyMode}`);
+                const callbacks = {
+                    isPrivateMode: () => privacyMode === 'private',
+                    emitHiddenPing: sharing.broadcastHiddenPing,
+                    emitGmPullView: sharing.broadcastGmPullView
+                };
+                privacy.installCursorPrivacyBroadcastWrapper(callbacks);
+                privacy.installCursorPrivacyBroadcastWrapper(callbacks);
+                sharing.startCursorSharing(privacyMode === 'share');
+                emissions.length = 0;
+                const position = Object.freeze({ x: 2000, y: 1500 });
+                const ping = Object.freeze({ scene: 'scene-1', style: 'pulse', pull: true, zoom: 1.25 });
+                const activity = Object.freeze({ cursor: position, ping, targets: ['kept'] });
+                User.prototype.broadcastActivity.call(local, activity, { volatile: false });
+                assert.equal(received.length, 0, 'broadcast wrapper leaves local ping rendering to Foundry');
+                assert.equal(native.length, 1, 'unrelated targets forward exactly once');
+                assert.deepEqual(native[0].activity.targets, ['kept']);
+                assert.equal('cursor' in native[0].activity, privacyMode !== 'private');
+                assert.equal('ping' in native[0].activity, mode === 'native' && privacyMode !== 'private');
+                assert.equal(activity.ping, ping, 'original remains available to the local Canvas.ping call');
+                const packet = emissions.find(e => ['gmPullView', 'hiddenPing'].includes(e[1].type))?.[1];
+                const hasModulePing = mode !== 'native' || privacyMode === 'private';
+                assert.equal(emissions.length, hasModulePing ? 1 : 0);
+                if (!hasModulePing) return;
+                assert.equal(packet.type, mode === 'native' ? 'hiddenPing' : 'gmPullView');
+                if (mode === 'fit') assert.deepEqual(packet.view, { width: 1536, height: 864 });
+                // Exercise receiver handling for two differently shaped player
+                // canvases. Live browser transport is a separate acceptance check.
+                game.user = remote;
+                for (const [width, height, current, fit] of [[1280, 1024, 2, 5 / 6], [2560, 1080, 0.5, 1.25]]) {
+                    canvas.app.renderer.screen = { width, height };
+                    canvas.stage.scale.x = current;
+                    advance(501);
+                    const before = received.length;
+                    receive(packet, local.id);
+                    assert.equal(received.length, before + 1);
+                    const [sender, point, options] = received.at(-1);
+                    assert.equal(sender, local);
+                    assert.deepEqual(point, position);
+                    assert.equal(options.pull, true);
+                    assert.ok(Math.abs(options.zoom - (mode === 'fit' ? fit : mode === 'keep' ? current : 1.25)) < 1e-9);
+                }
+            });
+        });
+    }
+}
+
+test('GM pull receiver enforces authority, view, validation, and shared ping rate limit', async () => {
+    await withSharingEnvironment('pull-authority', async env => {
+        const { sharing, receive, remote, advance } = env;
+        const calls = [];
+        canvas.stage = { scale: { x: 0.75 } };
+        canvas.app.renderer = { screen: { width: 1280, height: 1024 } };
+        canvas.dimensions = { scale: { min: 0.01, max: 10 } };
+        canvas.controls.handlePing = (...args) => calls.push(args);
+        sharing.startCursorSharing(false);
+        const packet = { type: 'gmPullView', mode: 'keep', sceneId: 'scene-1', levelId: 'ground',
+            position: { x: 100, y: 200 }, ping: { pull: true, zoom: 1, style: 'injected', duration: 99999 } };
+        receive(packet); // Player cannot pull.
+        remote.isGM = true;
+        receive({ ...packet, userId: 'local' }); // Authenticated ID mismatch.
+        receive({ ...packet, sceneId: 'other' });
+        receive({ ...packet, levelId: 'other' });
+        remote.viewedScene = 'other'; receive(packet); remote.viewedScene = 'scene-1';
+        remote.viewedLevel = 'other'; receive(packet); remote.viewedLevel = 'ground';
+        remote.hasPermission = () => false; receive(packet); remote.hasPermission = () => true;
+        receive({ ...packet, mode: 'fit', view: { width: NaN, height: 2 } });
+        assert.equal(calls.length, 0);
+        receive(packet);
+        assert.equal(calls.length, 1);
+        assert.deepEqual(calls[0][2], { scene: 'scene-1', style: 'pulse', pull: true, zoom: 0.75 });
+        receive(packet);
+        receive({ ...packet, type: 'hiddenPing' });
+        assert.equal(calls.length, 1, 'both module ping types share the limiter');
+        advance(501);
+        receive({ ...packet, type: 'hiddenPing', ping: { pull: true, zoom: 6 } });
+        assert.equal(calls.at(-1)[2].zoom, 6);
+        advance(501);
+        receive({ ...packet, type: 'hiddenPing', ping: { pull: true, zoom: 0.05 } });
+        assert.equal(calls.at(-1)[2].zoom, 0.05);
+        sharing.stopCursorSharing();
+        receive(packet);
+        assert.equal(calls.length, 3, 'teardown removes the receiver');
+        sharing.startCursorSharing(false);
+        canvas.scene.id = 'new-scene';
+        receive(packet);
+        assert.equal(calls.length, 3, 'old scene packets cannot pull after restart');
+    });
+});
+
+test('GM pull sender falls back when capture, permission, connection, or lifecycle is unavailable', async () => {
+    await withSharingEnvironment('pull-fallback', async env => {
+        const { sharing, local } = env;
+        game.settings.get = (_scope, key) => key === 'gm-pull-view-mode' ? 'fit' : 'off';
+        local.isGM = true;
+        const ping = { scene: 'scene-1', pull: true, zoom: 1 };
+        const point = { x: 10, y: 20 };
+        assert.equal(sharing.broadcastGmPullView(point, ping), false);
+        sharing.startCursorSharing(false);
+        assert.equal(sharing.broadcastGmPullView(point, ping), false, 'no viewport');
+        canvas.stage = { scale: { x: 1 } };
+        canvas.app.renderer = { screen: { width: 1920, height: 1080 } };
+        local.hasPermission = () => false;
+        assert.equal(sharing.broadcastGmPullView(point, ping), false);
+        local.hasPermission = () => true;
+        game.socket.connected = false;
+        assert.equal(sharing.broadcastGmPullView(point, ping), false);
+        game.socket.connected = true;
+        assert.equal(sharing.broadcastGmPullView(point, { ...ping, scene: 'other' }), false);
+        assert.equal(sharing.broadcastGmPullView(point, ping), true);
+    });
+});
+
+test('switching idle fade paths resets child opacity and restores active cursor opacity', async () => {
+    await withSharingEnvironment('fade-transition', async env => {
+        const { sharing, overlay, move, advance, tick, cursorParent } = env;
+        for (const [key, value] of Object.entries({ showNames: true, foundryCursorDisplay: 'none',
+            cursorOpacity: 0.8, disableCursorFade: false, idleIdentityFade: true })) overlay.updateOverlaySetting(key, value);
+        sharing.startCursorSharing(false);
+        move(); tick(); advance(5500); tick();
+        const entry = cursorParent.children[0].children[0];
+        const arrow = entry.children[0].children[0];
+        const name = entry.children[1];
+        assert.equal(entry.alpha * arrow.alpha, 0.4);
+        overlay.updateOverlaySetting('idleIdentityFade', false); tick();
+        assert.equal(entry.alpha * arrow.alpha, 0.4);
+        assert.equal(entry.alpha * name.alpha, 0.4);
+        overlay.updateOverlaySetting('idleIdentityFade', true); tick();
+        assert.equal(entry.alpha * arrow.alpha, 0.4);
+        advance(30); move(); tick();
+        assert.equal(entry.alpha * arrow.alpha, 0.8);
+        for (const [key, value] of Object.entries({ showNames: false, foundryCursorDisplay: 'both',
+            cursorOpacity: 1, idleIdentityFade: false })) overlay.updateOverlaySetting(key, value);
+    });
+});
 
 test('sharing bridge preserves native movement authority and targets image responses to the authenticated requester', async () => {
     await withSharingEnvironment('native-and-requests', async env => {
