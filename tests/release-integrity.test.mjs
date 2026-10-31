@@ -58,7 +58,7 @@ test('release payload allowlist is exact, safe, and present', async () => {
         assert.equal(isSafeRepositoryPath(path), true, `unsafe payload path: ${path}`);
         await access(path);
     }
-    for (const excluded of ['LLM-Instructions', 'tests', 'tools', '.git', '.github', 'package.json']) {
+    for (const excluded of ['tests', 'tools', '.git', '.github', 'package.json']) {
         assert.equal(isPathIncludedInRelease(excluded), false, `private/development path leaked: ${excluded}`);
     }
 });

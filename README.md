@@ -441,7 +441,7 @@ https://github.com/GnollStack/Show-Of-Hands/releases/latest/download/module.json
 
 </div>
 
-**Module version:** `14.2.3`
+**Module version:** `14.2.4`
 
 **Foundry VTT:** v14 only; verified on **14.367**.
 
@@ -674,7 +674,7 @@ For licensing inquiries or permission slips:
 
 <div align="center">
 
-**Author:** [GnollStack](https://github.com/GnollStack) - **Compatibility:** Foundry VTT v14 - **Version:** 14.2.3
+**Author:** [GnollStack](https://github.com/GnollStack) - **Compatibility:** Foundry VTT v14 - **Version:** 14.2.4
 
 [Back to Top](#show-of-hands)
 
