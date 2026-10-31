@@ -24,4 +24,4 @@ jobs:
       - run: npm run check:release
       - run: npm run smoke
       - if: matrix.node-version == 22
-        run: npm run package:release -- --output "${{ runner.temp }}/show-of-hands.zip"
+        run: npm run package:release -- --no-tag-check --output "${{ runner.temp }}/show-of-hands.zip"

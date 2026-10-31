@@ -13,10 +13,15 @@ import {
 function parseArguments(argv) {
     const result = {
         ref: 'HEAD',
-        output: `dist/${EXPECTED_MODULE_ID}.zip`
+        output: `dist/${EXPECTED_MODULE_ID}.zip`,
+        checkTag: true
     };
     for (let index = 0; index < argv.length; index += 1) {
         const argument = argv[index];
+        if (argument === '--no-tag-check') {
+            result.checkTag = false;
+            continue;
+        }
         if (argument === '--ref' || argument === '--output') {
             const value = argv[index + 1];
             if (!value) throw new Error(`${argument} requires a value.`);
@@ -69,13 +74,16 @@ async function assertOutputDoesNotExist(outputPath) {
 }
 
 async function main() {
-    const { ref, output } = parseArguments(process.argv.slice(2));
+    const { ref, output, checkTag } = parseArguments(process.argv.slice(2));
     const root = String(runGit(['rev-parse', '--show-toplevel'])).trim();
     const commit = String(runGit(['rev-parse', `${ref}^{commit}`], { cwd: root })).trim();
     const manifest = readJsonAtRef(root, ref, 'module.json');
     const packageJson = readJsonAtRef(root, ref, 'package.json');
     const readme = String(runGit(['show', `${ref}:README.md`], { cwd: root }));
-    const existingReleaseTagCommit = resolveOptionalCommit(root, `refs/tags/${getExpectedReleaseTag(manifest.version)}`);
+    // CI packages every push to prove the payload builds; commits after a release share its version.
+    const existingReleaseTagCommit = checkTag
+        ? resolveOptionalCommit(root, `refs/tags/${getExpectedReleaseTag(manifest.version)}`)
+        : null;
     const errors = validateReleaseContract({
         manifest,
         packageJson,
