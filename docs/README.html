@@ -408,14 +408,6 @@ document.getElementById(&quot;board&quot;)?.classList.toString()
 ShowOfHands.getDebugState()
 </code></pre>
 </details>
-<details>
-<summary><strong>Diagnostics (MCP Bridge)</strong></summary>
-<p>For MCP Diagnostics through Foundry MCP Bridge, enable <strong>Debug Mode</strong> as a GM and turn on <strong>Enable MCP Diagnostics</strong>. These controls are advanced GM-only troubleshooting tools and can stay disabled during normal play. The available actions are listed under <a href="#developer-api">Developer API</a>.</p>
-<p>The normal hard refresh path from MCP is the bridge-level <code>reload-foundry-client</code> tool. The module-level <code>refreshClient({ delayMs })</code> action is also available so this module's own diagnostics gate can be tested.</p>
-<p><code>validateV14Runtime()</code> is read-only and checks the V14 ApplicationV2, DialogV2, cursor, FilePicker, FormDataExtended, and canvas cursor contracts used by the module. It also reports Scene Levels observations when Foundry exposes them.</p>
-<p>A diagnostic warning that legacy <code>cursor-states</code> differs from <code>flags.show-of-hands.cursorConfig</code> is expected after per-user profiles exist. The user flag profile is canonical.</p>
-<p>Mutating fixture checks are paired with <strong>Enable MCP Diagnostics</strong> and still require an explicit <code>confirmMutation: true</code> argument. Automation creates temporary active-scene token fixtures named with the <code>SOH-MCP-FIXTURE</code> prefix and flagged with <code>flags.show-of-hands.mcpAutomationFixture</code>. Cleanup recognizes old <code>TTB-MCP-FIXTURE</code> fixtures for compatibility, but new automation uses the Show of Hands prefix. Keep MCP diagnostics disabled during normal play and use automation only in dedicated test worlds.</p>
-</details>
 <hr />
 <div style="text-align: center;">
 <h2 id="use-it-for">Use It For</h2>
@@ -503,7 +495,7 @@ ShowOfHands.getDebugState()
 <div style="text-align: center;">
 <h2 id="compatibility">Compatibility</h2>
 </div>
-<p><strong>Module version:</strong> <code>14.2.4</code></p>
+<p><strong>Module version:</strong> <code>14.2.5</code></p>
 <p><strong>Foundry VTT:</strong> v14 only; verified on <strong>14.367</strong>.</p>
 <p><strong>Game systems:</strong> works in any system; tested in <strong>dnd5e 5.3.3</strong>. Targeting, cursor styling, and cursor sharing work at the canvas and UI level and don't use dnd5e data.</p>
 <p><strong>Browsers:</strong> cursor customization relies on browser cursor image support. Keep cursor images at <code>128x128</code> or smaller for best compatibility.</p>
@@ -669,6 +661,6 @@ You may <strong>NOT</strong> sell this module, bundle it within paid content suc
 </ul>
 <hr />
 <div style="text-align: center;">
-<p><strong>Author:</strong> <a href="https://github.com/GnollStack">GnollStack</a> - <strong>Compatibility:</strong> Foundry VTT v14 - <strong>Version:</strong> 14.2.4</p>
+<p><strong>Author:</strong> <a href="https://github.com/GnollStack">GnollStack</a> - <strong>Compatibility:</strong> Foundry VTT v14 - <strong>Version:</strong> 14.2.5</p>
 <p><a href="#show-of-hands">Back to Top</a></p>
 </div>

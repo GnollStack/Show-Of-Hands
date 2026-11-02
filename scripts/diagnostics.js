@@ -590,6 +590,8 @@ async function validateCursorAssetsForDiagnostics(args = {}) {
     };
 }
 
+const CLIENT_EVIDENCE_MAX_CHARS = 15000;
+
 function getClientDiagnosticsSnapshot({ getDebugState } = {}) {
     const settingsSnapshot = collectSettingsSnapshot();
     const scene = getActiveScene();
@@ -1007,6 +1009,29 @@ export function createDiagnostics({
         getAvailability: () => getDiagnosticsGate(),
         getMutationAvailability,
         actionMetadata: createDiagnosticActionManifest(),
+        clientEvidence: () => clientEvidence({ getDebugState }),
         actions
     });
+}
+
+/**
+ * Player-side snapshot for support diagnostics. Runs on any client, so it applies no gate, and it stays
+ * read-only and under 16 kB.
+ */
+function clientEvidence({ getDebugState } = {}) {
+    try {
+        const { marqueeLevelFilter, moduleState, ...snapshot } = getClientDiagnosticsSnapshot({ getDebugState });
+        const evidence = { ...snapshot, moduleState: { ...moduleState, marqueeLevelFilter } };
+        if (JSON.stringify(evidence).length > CLIENT_EVIDENCE_MAX_CHARS) {
+            evidence.moduleState = {
+                truncated: true,
+                cursorSharingMode: moduleState?.cursorSharingMode ?? null,
+                cursorPrivateMode: moduleState?.cursorPrivateMode ?? null,
+                marqueeLevelFilter
+            };
+        }
+        return { success: true, ...evidence };
+    } catch (error) {
+        return { success: false, reason: error?.message ?? String(error) };
+    }
 }

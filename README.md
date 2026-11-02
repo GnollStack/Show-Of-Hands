@@ -351,21 +351,6 @@ ShowOfHands.getDebugState()
 
 </details>
 
-<details>
-<summary><strong>Diagnostics (MCP Bridge)</strong></summary>
-
-For MCP Diagnostics through Foundry MCP Bridge, enable **Debug Mode** as a GM and turn on **Enable MCP Diagnostics**. These controls are advanced GM-only troubleshooting tools and can stay disabled during normal play. The available actions are listed under [Developer API](#developer-api).
-
-The normal hard refresh path from MCP is the bridge-level `reload-foundry-client` tool. The module-level `refreshClient({ delayMs })` action is also available so this module's own diagnostics gate can be tested.
-
-`validateV14Runtime()` is read-only and checks the V14 ApplicationV2, DialogV2, cursor, FilePicker, FormDataExtended, and canvas cursor contracts used by the module. It also reports Scene Levels observations when Foundry exposes them.
-
-A diagnostic warning that legacy `cursor-states` differs from `flags.show-of-hands.cursorConfig` is expected after per-user profiles exist. The user flag profile is canonical.
-
-Mutating fixture checks are paired with **Enable MCP Diagnostics** and still require an explicit `confirmMutation: true` argument. Automation creates temporary active-scene token fixtures named with the `SOH-MCP-FIXTURE` prefix and flagged with `flags.show-of-hands.mcpAutomationFixture`. Cleanup recognizes old `TTB-MCP-FIXTURE` fixtures for compatibility, but new automation uses the Show of Hands prefix. Keep MCP diagnostics disabled during normal play and use automation only in dedicated test worlds.
-
-</details>
-
 ---
 
 <div align="center">
@@ -441,7 +426,7 @@ https://github.com/GnollStack/Show-Of-Hands/releases/latest/download/module.json
 
 </div>
 
-**Module version:** `14.2.4`
+**Module version:** `14.2.5`
 
 **Foundry VTT:** v14 only; verified on **14.367**.
 
@@ -674,7 +659,7 @@ For licensing inquiries or permission slips:
 
 <div align="center">
 
-**Author:** [GnollStack](https://github.com/GnollStack) - **Compatibility:** Foundry VTT v14 - **Version:** 14.2.4
+**Author:** [GnollStack](https://github.com/GnollStack) - **Compatibility:** Foundry VTT v14 - **Version:** 14.2.5
 
 [Back to Top](#show-of-hands)
 

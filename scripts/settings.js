@@ -433,7 +433,7 @@ export const SETTING_DEFINITIONS = Object.freeze([
     {
         key: "enableMcpDiagnostics",
         name: "Enable MCP Diagnostics",
-        hint: "Advanced GM-only diagnostics for Foundry MCP Bridge workflows, including module validation, client refresh, and confirmed temporary fixture automation. Leave this disabled unless you are intentionally debugging or testing this module.",
+        hint: "Advanced GM-only diagnostics, including module validation, client refresh, and confirmed temporary fixture automation. Leave this disabled unless you are intentionally debugging or testing this module.",
         scope: "world",
         config: true,
         restricted: true,
