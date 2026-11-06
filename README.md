@@ -63,7 +63,7 @@
 </div>
 
 1. Install and enable **Show of Hands** in your world.
-2. Open **Configure Settings > Module Settings > Show of Hands**.
+2. Open the **Settings** sidebar tab, choose **Game Settings**, and pick the **Show of Hands: Targeting & Cursors** category.
 3. Set **Middle-Mouse Actions** to **Click + Drag** for both single-token targeting and marquee selection.
 4. Open **Cursor Settings** to choose cursor images, hotspots, cursor sizes, and shared overlay name placement.
 5. Set **Cursor Sharing Mode** to decide whether you share your cursor, receive only, or stay private.
@@ -128,18 +128,18 @@ Hold the middle mouse button and drag to target several tokens at once.
 
 ### Custom Cursors
 
-Replace Foundry's default browser cursor with your own image for each cursor state.
+Replace Foundry's default browser cursor with your own image for each cursor state. Each state is a tab in **Cursor Settings**:
 
 | State | When Active |
 | --- | --- |
 | Default | Normal cursor on the canvas and UI. |
 | Hover | Mouse is over a token or clickable Foundry UI control. |
-| Pressed / Held | Primary mouse button is down during a default or clickable interaction, after press and before release/cancellation. Dragging keeps its separate cursor. |
-| Hover To Drag | Mouse is over draggable headers, rows, or drag sources. |
+| Pressed | Primary mouse button is down during a default or clickable interaction, after press and before release/cancellation. Dragging keeps its separate cursor. |
+| Grab | Mouse is over draggable headers, rows, or drag sources. |
 | Dragging | A draggable UI element is actively being dragged. |
 | Resize | Mouse is over a window resize handle. |
-| Text Editing | Mouse is over a text field or editor. |
-| Targeting | Targeting tool is active. |
+| Text | Mouse is over a text field or editor. |
+| Target | Targeting tool is active. |
 | Panning | Right-click dragging to pan. |
 
 Per-state customization includes FilePicker-backed image paths, click hotspot position, rotation from `0-359` degrees, width and height controls, aspect-ratio locking, state enablement, live preview, native fallback previews, and profile copy/reset controls. Hotspot sliders use the loaded source image's pixel dimensions, then scale that point with the image into the browser's 128px cursor limit. Show of Hands ships without cursor artwork; leave an image path empty to use Foundry's native cursor for that state.
@@ -183,6 +183,7 @@ See other players' cursors on the canvas in real time. Each shared cursor appear
 - Custom cursor images are shared between players.
 - Cursor size stays the same at any canvas zoom.
 - **Shared Cursor Size** controls the final on-screen size for remote cursors.
+- **Shared Cursor Size**, **Show Shared Cursor Names (Overlay)** and **Built-In Foundry Cursor Elements** are per-player settings: each player chooses how other people's cursors look on their own screen, so the GM's choices do not change what players see.
 - Only cursors from players on the same scene are shown.
 - Cursor images refresh when sharing is turned on after other players have already connected.
 - **Cursor Sharing Mode** can share your cursor, receive only, or fully hide your cursor from others.
@@ -211,7 +212,7 @@ Private mode also wraps native cursor activity so canvas pings do not reveal you
 
 ### GM Pull Ping View
 
-As GM, use **Shift + hold left-click** on the canvas to send a pull ping using [Foundry's normal ping gesture](https://foundryvtt.com/article/pings/). Choose **Configure Settings > Module Settings > Show of Hands > GM Pull Ping View** to control the camera behavior for the world:
+As GM, use **Shift + hold left-click** on the canvas to send a pull ping using [Foundry's normal ping gesture](https://foundryvtt.com/article/pings/). Choose **Game Settings > Show of Hands: Targeting & Cursors > GM Pull Ping View** to control the camera behavior for the world:
 
 | Mode | What viewers see |
 | --- | --- |
@@ -255,7 +256,7 @@ Control Foundry's native cursor dot and name independently from the module overl
 <details>
 <summary><strong>Idle identity fade-in</strong></summary>
 
-When the hidden advanced **Show Identity on Idle** setting is enabled and some Foundry elements are hidden, those hidden elements fade in as a player's cursor fades out after going idle.
+When **Show hidden Foundry identity on idle** (in **Advanced Settings**) is enabled and some Foundry elements are hidden, those hidden elements fade in as a player's cursor fades out after going idle.
 
 | Foundry Elements Setting | What Fades In on Idle |
 | --- | --- |
@@ -410,7 +411,7 @@ https://github.com/GnollStack/Show-Of-Hands/releases/latest/download/module.json
 > `show-of-hands` and the legacy `target-the-beastie` are distinct Foundry packages. Install Show of Hands, disable the legacy module, and never enable both together. On first load, Show of Hands imports compatible legacy settings and the local user's cursor profile. Verify the migrated profile before uninstalling the legacy package.
 
 3. Enable the module in your world.
-4. Configure it under **Module Settings > Show of Hands**.
+4. Configure it under **Game Settings > Show of Hands: Targeting & Cursors**.
 
 | Requirement | Version |
 | --- | --- |

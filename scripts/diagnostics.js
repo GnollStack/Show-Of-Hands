@@ -726,7 +726,6 @@ function buildStatusPayload({ getDebugState } = {}) {
             readOnlyActions: [...READ_ONLY_DIAGNOSTIC_ACTION_NAMES],
             mutatingActions: [...MUTATING_DIAGNOSTIC_ACTION_NAMES],
             actionMetadata,
-            bridge: "call-module-debug-action",
             fixturePrefix: FIXTURE_PREFIX,
             fixtureFlag: FIXTURE_FLAG,
             mutation: {
@@ -736,7 +735,6 @@ function buildStatusPayload({ getDebugState } = {}) {
             },
             refresh: {
                 moduleAction: "refreshClient",
-                bridgeTool: "reload-foundry-client",
                 gatedByDiagnostics: true
             },
             allowlisted: true,
